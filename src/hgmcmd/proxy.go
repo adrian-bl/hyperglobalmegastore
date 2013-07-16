@@ -1,12 +1,12 @@
 package main
 
 import (
-   "net/http"
-   "fmt"
-   "io"
-   "time"
-   "flickr/png"
-   "github.com/tadzik/simpleaes"
+	"net/http"
+	"fmt"
+	"io"
+	"time"
+	"libhgms/flickr/png"
+	"libhgms/crypto/aestool"
 )
 
 /* Log structure expected by emitLog() */
@@ -91,9 +91,9 @@ func serve(clientW http.ResponseWriter, clientRQ *http.Request) {
 	pngReader, err := flickr.NewReader(backendResp.Body)
 	if err != nil { panic(err) }
 	
-	aes, _ := simpleaes.New(16, "wurstsalat");
+	aes, _ := aestool.New(16, "wurstsalat", "ivx");
 	fmt.Printf("%s\n", aes)
-	aes.DecryptStream(pngReader, clientW)
+	aes.DecryptStream(clientW, pngReader)
 	io.Copy(clientW, pngReader)
 	
 }

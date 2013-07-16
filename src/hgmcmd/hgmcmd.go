@@ -3,7 +3,7 @@ package main
 import(
 	"fmt"
 	"os"
-	"flickr/png"
+	"libhgms/flickr/png"
 )
 
 
