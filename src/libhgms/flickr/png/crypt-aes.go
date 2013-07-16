@@ -15,7 +15,7 @@ func CryptAes(key string, iv string, infile string, outfile string, encrypt bool
 	if err != nil { panic(err) }
 	defer fhOut.Close()
 	
-	aes, err := aestool.New(16, key, iv); /* fixme: random IV! */
+	aes, err := aestool.New(16, []byte(key), []byte(iv)); /* fixme: random IV! */
 	if err != nil { panic(err) }
 	
 	if encrypt {

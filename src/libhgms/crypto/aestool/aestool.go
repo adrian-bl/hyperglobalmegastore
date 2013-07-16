@@ -14,7 +14,7 @@ type AesTool struct {
 /*
  * Returns a new aestool object instance
  */
-func New(keySize int, key string, iv string) (*AesTool, error) {
+func New(keySize int, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 	
 	paddedKey := make([]byte, keySize)

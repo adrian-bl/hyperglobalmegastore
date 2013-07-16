@@ -10,10 +10,11 @@ import (
 type reader struct {
 	r io.Reader          /* raw-file reader          */
 	zr io.Reader         /* zlib reader              */
-	slsize int           /* scanline length          */
 	uncompressed []byte  /* raw data with scanlines  */
 	decoded []byte       /* decoded -> scanline-free */
-	IV []byte
+	slsize int           /* scanline length          */
+	IV []byte            /* IV used by this image    */
+	KeySize int          /* AES keysize in BYTES     */
 }
 
 /* Our data stream is:
@@ -69,6 +70,7 @@ func (pr *reader) InitReader() {
 	pr.zr = zr
 	
 	if pr.slsize == 0 { panic(nil) } /* fixme */
+	pr.KeySize = 16 /* fixme: should parse ENCRYPTION=aes128 field */
 }
 
 func (pr *reader) Read(p []byte) (n int, err error) {
