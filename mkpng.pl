@@ -4,7 +4,7 @@ use String::CRC32 qw(crc32);
 use Compress::Zlib;
 use POSIX qw(ceil);
 
-use constant ENC_AES => 'aes256';
+use constant ENC_AES => 'aes128';
 
 my $tmpout = "${$}tmp.bin";
 my $encout = $tmpout.ENC_AES;
@@ -13,7 +13,10 @@ foreach my $to_upload (@ARGV) {
 	print "Converting '$to_upload' ...\n";
 	
 	print " ...encrypting to $encout\n";
-	system("./hgmcmd", "encrypt", "wurstsalat", $to_upload, $encout);
+	
+	my $IV = getIV();
+	
+	system("./hgmcmd", "encrypt", "wurstsalat", $IV, $to_upload, $encout);
 	
 	my $original_csize = (-s $to_upload);
 	
@@ -24,13 +27,23 @@ foreach my $to_upload (@ARGV) {
 	unlink($encout);
 	
 	open(OH, ">", $tmpout) or die "Could not create tempfile $tmpout :$!\n";
-	convertBlob(*FH, *OH, CONTENTSIZE=>$original_csize, BLOBSIZE=>$original_csize, ENCRYPTION=>ENC_AES, LASTMODIFIED=>time(), IV=>int(rand(0xFFFFFF)));
+	convertBlob(*FH, *OH, CONTENTSIZE=>$original_csize, BLOBSIZE=>$original_csize, ENCRYPTION=>ENC_AES, LASTMODIFIED=>time(), IV=>$IV);
 	close(OH);
 	close(FH);
 }
 #unlink($tmpout);
 
 
+sub getIV {
+	open(UR, "<", "/dev/urandom") or die "Could not open random device: $!\n";
+	my $IV;
+	sysread(UR, $IV, 16);
+	close(UR);
+	
+	die "Short IV!\n" if length($IV) != 16;
+	
+	return $IV;
+}
 
 ############################################
 # Convert data at FH $ifh into PNG stored in $ofh
