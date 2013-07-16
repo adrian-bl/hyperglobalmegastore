@@ -17,11 +17,7 @@ type reader struct {
 	KeySize int          /* AES keysize in BYTES     */
 }
 
-/* Our data stream is:
- * #1: zlib compressed
- * #2: png-scanline encoded
- * #3: encrypted
-*/
+
 func NewReader(r io.Reader) (*reader, error) {
 	pr := new(reader)
 	pr.r = r
@@ -81,18 +77,15 @@ func (pr *reader) Read(p []byte) (n int, err error) {
 func (pr *reader) realRead(p []byte) (n int, err error) {
 	ucChunk := make([]byte, 1024)
 	running := true
-
 	for running {
 		if len(pr.decoded) < len(p) {
 			/* Read a compressed chunk */
 			zbread, err := pr.zr.Read(ucChunk[0:])
 			if err != nil { running = false }
-			fmt.Printf("D")
 			pr.uncompressed = append(pr.uncompressed, ucChunk[0:zbread]...)
 			for len(pr.uncompressed) > pr.slsize {
 				pr.decoded = append(pr.decoded, pr.uncompressed[1:pr.slsize+1]...)
 				pr.uncompressed = pr.uncompressed[pr.slsize+1:]
-				fmt.Printf("S")
 			}
 		} else {
 			running = false

@@ -17,21 +17,29 @@ var backendClient *http.Client
 func LaunchProxy(bindAddr string, bindPort string) {
 	tr := &http.Transport{ ResponseHeaderTimeout: 5*time.Second }
 	backendClient = &http.Client{Transport: tr}
-	http.HandleFunc("/", serve)
+	http.HandleFunc("/raw/", handleRaw)
 	http.ListenAndServe(":8080", nil) 
 }
 
 
+/*
+ * Handles a request in /HOSTNAME/URI format
+ */
+func handleRaw(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf(">> %s\n", r.RequestURI)
+	target := fmt.Sprintf("http://%s", r.RequestURI[5:])
+	serveFullURI(w, r, target)
+}
 
-
-func serve(clientW http.ResponseWriter, clientRQ *http.Request) {
-	/* Holy macaroni! A new http request!!!111
-	 * -> Setup some basic logging stuff */
+/*
+ * Handle request for given targetURI
+ */
+func serveFullURI(clientW http.ResponseWriter, clientRQ *http.Request, targetURI string) {
 	
-//	targetURI := clientRQ.RequestURI
+	fmt.Printf("GET %s\n", targetURI)
 	
 	/* Assemble a new GET request to our guessed target URL and copy almost all HTTP headers */
-	backendRQ, err := http.NewRequest("GET", fmt.Sprintf("http://farm4.staticflickr.com/3758/9297644987_259646b8ff_o.png"), nil)
+	backendRQ, err := http.NewRequest("GET", targetURI, nil)
 	if err != nil {
 		clientW.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(clientW, "Internal server errror :-(\n")
