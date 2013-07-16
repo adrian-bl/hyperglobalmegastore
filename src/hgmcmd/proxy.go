@@ -55,7 +55,7 @@ func serve(clientW http.ResponseWriter, clientRQ *http.Request) {
 	targetURI := clientRQ.RequestURI
 	
 	/* Assemble a new GET request to our guessed target URL and copy almost all HTTP headers */
-	backendRQ, err := http.NewRequest("GET", fmt.Sprintf("http://farm4.staticflickr.com/3809/9293034678_ee5dd4a670_o.png"), nil)
+	backendRQ, err := http.NewRequest("GET", fmt.Sprintf("http://farm4.staticflickr.com/3758/9297644987_259646b8ff_o.png"), nil)
 	if err != nil {
 		logItem.StatusCode = http.StatusInternalServerError
 		clientW.WriteHeader(logItem.StatusCode)
@@ -90,10 +90,10 @@ func serve(clientW http.ResponseWriter, clientRQ *http.Request) {
 	
 	pngReader, err := flickr.NewReader(backendResp.Body)
 	if err != nil { panic(err) }
+	pngReader.InitReader()
+	fmt.Printf("> IV IS %s\n", pngReader.IV)
 	
-	aes, _ := aestool.New(16, "wurstsalat", "ivx");
+	aes, _ := aestool.New(16, "wurstsalat", string(pngReader.IV)); /* fixme: this should take bytes */
 	fmt.Printf("%s\n", aes)
 	aes.DecryptStream(clientW, pngReader)
-	io.Copy(clientW, pngReader)
-	
 }
