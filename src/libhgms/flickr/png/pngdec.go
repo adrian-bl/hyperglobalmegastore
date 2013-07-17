@@ -53,7 +53,6 @@ func (pr *reader) InitReader() {
 				bytesPerPixel := 3 /* fixme */
 				scanlineVal := xunpack(payload)
 				pr.slsize = scanlineVal * bytesPerPixel
-				fmt.Printf("> scanline configured to %d\n", pr.slsize)
 			} else if string(chunk[4:]) == "tEXt" {
 				pairs := bytes.SplitN(payload, []byte("="), 2)
 				fmt.Printf(">> [%s]=[%s]\n", pairs[0], pairs[1]);

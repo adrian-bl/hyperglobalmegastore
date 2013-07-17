@@ -17,17 +17,22 @@ var backendClient *http.Client
 func LaunchProxy(bindAddr string, bindPort string) {
 	tr := &http.Transport{ ResponseHeaderTimeout: 5*time.Second }
 	backendClient = &http.Client{Transport: tr}
-	http.HandleFunc("/raw/", handleRaw)
+	http.HandleFunc("/_raw/", handleRaw)
+	http.HandleFunc("/", handleAny)
 	http.ListenAndServe(":8080", nil) 
 }
 
+func handleAny(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, "Welcome to Hyper Global Mega Store\n")
+}
 
 /*
  * Handles a request in /HOSTNAME/URI format
  */
 func handleRaw(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf(">> %s\n", r.RequestURI)
-	target := fmt.Sprintf("http://%s", r.RequestURI[5:])
+	target := fmt.Sprintf("http://%s", r.RequestURI[6:])
 	serveFullURI(w, r, target)
 }
 
@@ -48,7 +53,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, startURI string) {
 				dst.WriteHeader(http.StatusInternalServerError)
 				io.WriteString(dst, "Internal server errror :-(\n")
 			}
-			return
+			break
 		}
 		
 		backendResp, err := backendClient.Do(backendRQ)
@@ -57,7 +62,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, startURI string) {
 				dst.WriteHeader(http.StatusServiceUnavailable)
 				io.WriteString(dst, "Backend down")
 			}
-			return
+			break
 		}
 		
 		pngReader, err := flickr.NewReader(backendResp.Body)
@@ -75,12 +80,11 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, startURI string) {
 		backendResp.Body.Close()
 		
 		if err == nil && pngReader.NextBlob != "" {
-			fmt.Printf("Need to switch to %s\n", pngReader.NextBlob)
 			currentURI = pngReader.NextBlob
 		} else {
-			fmt.Printf("STREAM FINISHED\n")
 			break
 		}
 	}
 	
+	fmt.Printf("== http request finished\n")
 }
