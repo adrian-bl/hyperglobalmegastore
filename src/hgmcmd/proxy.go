@@ -15,7 +15,7 @@ import (
 var backendClient *http.Client
 
 type AliasJSON struct {
-	Location string
+	Location [][]string
 	Key string
 }
 
@@ -23,7 +23,6 @@ type AliasJSON struct {
 func LaunchProxy(bindAddr string, bindPort string) {
 	tr := &http.Transport{ ResponseHeaderTimeout: 5*time.Second }
 	backendClient = &http.Client{Transport: tr}
-	http.HandleFunc("/_raw/", handleRaw)
 	
 	http.HandleFunc("/", handleAlias)
 	http.ListenAndServe(":8080", nil) 
@@ -52,29 +51,21 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	target := fmt.Sprintf("http://%s", jsx.Location)
-	serveFullURI(w, r, jsx.Key, target)
+	serveFullURI(w, r, jsx.Key, jsx.Location)
 }
 
-
-/*
- * Handles a request in /HOSTNAME/URI format
- */
-func handleRaw(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf(">> %s\n", r.RequestURI)
-	target := fmt.Sprintf("http://%s", r.RequestURI[6:])
-	serveFullURI(w, r, "wurstsalat", target)
-}
 
 /*
  * Handle request for given targetURI
  */
 
-func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, startURI string) {
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, locArray [][]string) {
 	
-	currentURI := startURI
-	fmt.Printf("======================================================\n")
+	fmt.Printf("====================================================== :: %d\n", len(locArray[0]))
 	for i:=0; ; i++ {
+		
+		currentURI := locArray[0][i]
+		
 		fmt.Printf("PART %d OF STREAM -> %s\n", i, currentURI)
 		
 		backendRQ, err := http.NewRequest("GET", currentURI, nil)
@@ -109,9 +100,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, startUR
 		
 		backendResp.Body.Close()
 		
-		if err == nil && pngReader.NextBlob != "" {
-			currentURI = pngReader.NextBlob
-		} else {
+		if err != nil || len(locArray[0]) == i+1 {
 			break
 		}
 	}
