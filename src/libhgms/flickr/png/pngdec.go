@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"bytes"
+	"strconv"
 	"compress/zlib"
 )
 
@@ -15,6 +16,7 @@ type reader struct {
 	slsize int           /* scanline length          */
 	IV []byte            /* IV used by this image    */
 	KeySize int          /* AES keysize in BYTES     */
+	ContentSize int64    /* Content-Size sent in HTTP header */
 }
 
 
@@ -54,6 +56,7 @@ func (pr *reader) InitReader() {
 				pairs := bytes.SplitN(payload, []byte("="), 2)
 				fmt.Printf(">> [%s]=[%s]\n", pairs[0], pairs[1]);
 				if string(pairs[0]) == "IV" { pr.IV = pairs[1] }
+				if string(pairs[0]) == "CONTENTSIZE" { pr.ContentSize, _ = strconv.ParseInt(string(pairs[1]), 10, 64) }
 			}
 		} else {
 			parseHeader = false
@@ -105,7 +108,3 @@ func (pr *reader) realRead(p []byte) (n int, err error) {
 	return 0, nil
 }
 
-/* fixme: ilmplement me */
-func (pr *reader) Close() error {
-	return nil
-}

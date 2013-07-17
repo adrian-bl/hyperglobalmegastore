@@ -9,12 +9,13 @@ import(
 type AesTool struct {
 	encrypter cipher.BlockMode
 	decrypter cipher.BlockMode
+	streamlen int64
 }
 
 /*
  * Returns a new aestool object instance
  */
-func New(keySize int, key []byte, iv []byte) (*AesTool, error) {
+func New(keySize int, streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 	
 	paddedKey := make([]byte, keySize)
@@ -30,33 +31,46 @@ func New(keySize int, key []byte, iv []byte) (*AesTool, error) {
 	
 	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, paddedIV)
 	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, paddedIV)
+	aesTool.streamlen = streamlen
 	
 	return &aesTool, nil
 }
 
-func (self *AesTool) cryptWorker(writer io.Writer, reader io.Reader, cb cipher.BlockMode) error {
-	blockSize := self.encrypter.BlockSize()
-	blockBuff := make([]byte, blockSize)
-	var outBuff []byte
+/* fuck it */
+func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMode) (err error) {
+	blockSize := cb.BlockSize();
+	blockBuf := make([]byte, blockSize);
 	
-	for {
-		outBuff = []byte("")
+	for self.streamlen != 0 {
+		_, er := io.ReadFull(src, blockBuf)
 		
-		for len(outBuff) < 8192 {
-			_, err := io.ReadFull(reader, blockBuff)
-			
-			if err != nil && err != io.ErrUnexpectedEOF {
-				if err == io.EOF { err = nil } /* not really an error: expected result */
-				return err
-			}
-			cb.CryptBlocks(blockBuff, blockBuff)
-			outBuff = append(outBuff, blockBuff...)
+		if er == io.EOF {
+			break /* not really an error for us */
 		}
-		_, err := writer.Write(outBuff)
-		if err != nil { return err }
+		if er != nil && er != io.ErrUnexpectedEOF {
+			err = er
+			break
+		}
+		/* still here? -> we got new data to write */
+		cb.CryptBlocks(blockBuf, blockBuf)
+		
+		if self.streamlen > -1 && int64(len(blockBuf)) > self.streamlen {
+			blockBuf = blockBuf[:self.streamlen]
+		}
+		nw, ew := dst.Write(blockBuf)
+		self.streamlen -= int64(nw)
+		
+		if nw != len(blockBuf) {
+			err = io.ErrShortWrite
+			break
+		}
+		if ew != nil {
+			err = ew
+			break
+		}
 	}
 	
-	return nil /* not reached */
+	return err
 }
 
 func (self *AesTool) DecryptStream(writer io.Writer, reader io.Reader) error {

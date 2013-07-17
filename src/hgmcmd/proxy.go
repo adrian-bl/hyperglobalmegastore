@@ -62,13 +62,16 @@ func serveFullURI(clientW http.ResponseWriter, clientRQ *http.Request, targetURI
 	/* We got a backend connection, so we should close it at some later time */
 	defer backendResp.Body.Close();
 	
-	/* All done! -> Send headers and stream body to client */
-	clientW.WriteHeader(backendResp.StatusCode)
 	
 	pngReader, err := flickr.NewReader(backendResp.Body)
 	if err != nil { panic(err) }
 	pngReader.InitReader()
 	
-	aes, _ := aestool.New(pngReader.KeySize, []byte("wurstsalat"), pngReader.IV); /* fixme: this should take bytes */
-	aes.DecryptStream(clientW, pngReader)
+	/* All done! -> Send headers and stream body to client */
+	clientW.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
+	clientW.WriteHeader(backendResp.StatusCode)
+	
+	aes, _ := aestool.New(pngReader.KeySize, pngReader.ContentSize, []byte("wurstsalat"), pngReader.IV); /* fixme: this should take bytes */
+	funk := aes.DecryptStream(clientW, pngReader)
+	fmt.Printf("!! EXITED WITH %s\n", funk)
 }

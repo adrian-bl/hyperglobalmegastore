@@ -16,7 +16,7 @@ func main() {
 	if subModule == "encrypt" && len(os.Args) == 6 {
 		flickr.CryptAes(os.Args[2], os.Args[3], os.Args[4], os.Args[5], true)
 	} else if subModule == "decrypt" && len(os.Args) == 6 {
-		flickr.CryptAes(os.Args[2], os.Args[3], os.Args[4], os.Args[6], false)
+		flickr.CryptAes(os.Args[2], os.Args[3], os.Args[4], os.Args[5], false)
 	} else if subModule == "proxy" && len(os.Args) == 4 {
 		LaunchProxy(os.Args[2], os.Args[3])
 	} else {
