@@ -17,6 +17,8 @@ type reader struct {
 	IV []byte            /* IV used by this image    */
 	KeySize int          /* AES keysize in BYTES     */
 	ContentSize int64    /* Content-Size sent in HTTP header */
+	BlobSize int64       /* Size of this blob        */
+	NextBlob string      /* location of 'next' element */
 }
 
 
@@ -57,6 +59,8 @@ func (pr *reader) InitReader() {
 				fmt.Printf(">> [%s]=[%s]\n", pairs[0], pairs[1]);
 				if string(pairs[0]) == "IV" { pr.IV = pairs[1] }
 				if string(pairs[0]) == "CONTENTSIZE" { pr.ContentSize, _ = strconv.ParseInt(string(pairs[1]), 10, 64) }
+				if string(pairs[0]) == "BLOBSIZE"    { pr.BlobSize, _ = strconv.ParseInt(string(pairs[1]), 10, 64) }
+				if string(pairs[0]) == "NEXTBLOB"    { pr.NextBlob = fmt.Sprintf("http://%s", pairs[1]) }
 			}
 		} else {
 			parseHeader = false

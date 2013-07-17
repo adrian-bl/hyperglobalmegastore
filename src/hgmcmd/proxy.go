@@ -34,44 +34,53 @@ func handleRaw(w http.ResponseWriter, r *http.Request) {
 /*
  * Handle request for given targetURI
  */
-func serveFullURI(clientW http.ResponseWriter, clientRQ *http.Request, targetURI string) {
+
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, startURI string) {
 	
-	fmt.Printf("GET %s\n", targetURI)
-	
-	/* Assemble a new GET request to our guessed target URL and copy almost all HTTP headers */
-	backendRQ, err := http.NewRequest("GET", targetURI, nil)
-	if err != nil {
-		clientW.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(clientW, "Internal server errror :-(\n")
-		return
-	}
-	
-	for key, value := range clientRQ.Header {
-		if key != "Connection" {
-			backendRQ.Header.Set(key, value[0]);
+	currentURI := startURI
+	fmt.Printf("======================================================\n")
+	for i:=0; ; i++ {
+		fmt.Printf("PART %d OF STREAM -> %s\n", i, currentURI)
+		
+		backendRQ, err := http.NewRequest("GET", currentURI, nil)
+		if err != nil {
+			if i == 0 {
+				dst.WriteHeader(http.StatusInternalServerError)
+				io.WriteString(dst, "Internal server errror :-(\n")
+			}
+			return
+		}
+		
+		backendResp, err := backendClient.Do(backendRQ)
+		if err != nil {
+			if i == 0 {
+				dst.WriteHeader(http.StatusServiceUnavailable)
+				io.WriteString(dst, "Backend down")
+			}
+			return
+		}
+		
+		pngReader, err := flickr.NewReader(backendResp.Body)
+		if err != nil { panic(err) }
+		pngReader.InitReader()
+		
+		if i == 0 {
+			dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
+			dst.WriteHeader(backendResp.StatusCode)
+		}
+		
+		aes, _ := aestool.New(pngReader.KeySize, pngReader.BlobSize, []byte("wurstsalat"), pngReader.IV);
+		err = aes.DecryptStream(dst, pngReader)
+		
+		backendResp.Body.Close()
+		
+		if err == nil && pngReader.NextBlob != "" {
+			fmt.Printf("Need to switch to %s\n", pngReader.NextBlob)
+			currentURI = pngReader.NextBlob
+		} else {
+			fmt.Printf("STREAM FINISHED\n")
+			break
 		}
 	}
 	
-	/* Our request is ready: Send it to the backend server */
-	backendResp, err := backendClient.Do(backendRQ)
-	if err != nil {
-		clientW.WriteHeader(http.StatusServiceUnavailable)
-		io.WriteString(clientW,"Backend server down :-(\n")
-		return
-	}
-	/* We got a backend connection, so we should close it at some later time */
-	defer backendResp.Body.Close();
-	
-	
-	pngReader, err := flickr.NewReader(backendResp.Body)
-	if err != nil { panic(err) }
-	pngReader.InitReader()
-	
-	/* All done! -> Send headers and stream body to client */
-	clientW.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
-	clientW.WriteHeader(backendResp.StatusCode)
-	
-	aes, _ := aestool.New(pngReader.KeySize, pngReader.ContentSize, []byte("wurstsalat"), pngReader.IV); /* fixme: this should take bytes */
-	funk := aes.DecryptStream(clientW, pngReader)
-	fmt.Printf("!! EXITED WITH %s\n", funk)
 }

@@ -30,6 +30,7 @@ foreach my $to_upload (@ARGV) {
 	convertBlob(*FH, *OH, CONTENTSIZE=>$original_csize, BLOBSIZE=>$original_csize, ENCRYPTION=>ENC_AES, LASTMODIFIED=>time(), IV=>$IV);
 	close(OH);
 	close(FH);
+	system("flickr_upload", "--title", $to_upload, $tmpout);
 }
 #unlink($tmpout);
 
