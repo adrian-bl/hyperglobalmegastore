@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2013 Adrian Ulrich <adrian@blinkenlights.ch>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>. 
+ */
+
 package main
 
 import (
@@ -19,6 +36,7 @@ type AliasJSON struct {
 	Location [][]string  /* Raw HTTP URL           */
 	Key string           /* 7-bit ascii hex string */
 }
+
 
 
 func LaunchProxy(bindAddr string, bindPort string) {
@@ -47,7 +65,6 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "corrupted metadata\n");
-		fmt.Printf("json error: %s\n", err)
 		return
 	}
 	
@@ -86,7 +103,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArra
 		if err != nil {
 			if i == 0 {
 				dst.WriteHeader(http.StatusServiceUnavailable)
-				io.WriteString(dst, "Backend down")
+				io.WriteString(dst, "Could not connect to remote server\n")
 			}
 			break
 		}
@@ -99,8 +116,6 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArra
 			dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 			dst.WriteHeader(backendResp.StatusCode)
 		}
-		
-		fmt.Printf(">KeySize =%, ivsize=%dd\n", len(key), len(pngReader.IV))
 		
 		aes, _ := aestool.New(pngReader.BlobSize, key, pngReader.IV);
 		err = aes.DecryptStream(dst, pngReader)
