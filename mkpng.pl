@@ -1,59 +1,135 @@
 #!/usr/bin/perl
 use strict;
+use Flickr::Upload;
+use JSON qw(to_json);
 use String::CRC32 qw(crc32);
 use Compress::Zlib;
 use POSIX qw(ceil);
 
-use constant ENC_AES => 'aes128';
+$| = 1;
 
-my $tmpout = "${$}tmp.bin";
-my $encout = $tmpout.ENC_AES;
+my $keysize = 128;
+
 
 foreach my $to_upload (@ARGV) {
-	print "Converting '$to_upload' ...\n";
+	my $iv     = getRandomBytes($keysize/8);
+	my $key    = getRandomBytes($keysize/8);
+	my $fsize  = (-s $to_upload);
+	my $encout = "tmp.encrypted.$$";
+	my $pngout = "tmp.png.$$";
 	
-	print " ...encrypting to $encout\n";
+	print "file=$to_upload ($fsize bytes)...\n   ";
 	
-	my $IV = getIV();
-	
-	system("./hgmcmd", "encrypt", "wurstsalat", $IV, $to_upload, $encout);
-	
-	my $original_csize = (-s $to_upload);
-	
-	unless (open(FH, "<", $encout)) {
-		warn "could not open $encout: $!\n";
+	# first step is to encrypt the file using hgcmd:
+	print "encrypting";
+	system("./hgmcmd", "encrypt", unpack("H*", $key), unpack("H*", $iv), $to_upload, $encout);
+	unless(open(ENC_FH, "<", $encout)) {
+		warn "could not open $encout: $!, skipping $to_upload\n";
 		next;
 	}
 	unlink($encout);
 	
-	open(OH, ">", $tmpout) or die "Could not create tempfile $tmpout :$!\n";
-	convertBlob(*FH, *OH, CONTENTSIZE=>$original_csize, BLOBSIZE=>$original_csize, ENCRYPTION=>ENC_AES, LASTMODIFIED=>time(), IV=>$IV);
-	close(OH);
-	close(FH);
-	system("flickr_upload", "--title", $to_upload, $tmpout);
+	# ENC_FH points to the encrypted file: We can now convert it into a PNG file
+	print " convert";
+	open(PNG_FH, ">", $pngout) or die "Could not create tempfile $pngout: $!\n";
+	convertBlob(*ENC_FH, *PNG_FH, CONTENTSIZE=>$fsize, BLOBSIZE=>$fsize, IV=>$iv);
+	close(PNG_FH);
+	close(ENC_FH);
+	
+	# The png file is now ready at $pngout: time to upload it to flickr
+	print " upload";
+	my $photo_html = flickrUpload($pngout);
+	unlink($pngout);
+	
+	print " verify";
+	my $orig_photo = getFullFlickrUrl($photo_html);
+	print "\n";
+	
+	storeJSON(Source=>$to_upload, Key=>$key, Location=>[ [ $orig_photo ] ]);
+	
 }
-#unlink($tmpout);
 
 
-sub getIV {
+sub storeJSON {
+	my(%args) = @_;
+	
+	my $json_fname = ( split('/', $args{Source}) )[-1];
+	$json_fname =~ tr/a-zA-Z0-9\.-/_/c;
+	my $ref = { Location=>$args{Location}, Key=>unpack("H*", $args{Key}) };
+	my $js  = to_json($ref, { utf8=>1, pretty=>1});
+	
+	open(ALIAS, ">", "./_aliases/$json_fname") or die "Could not write alias\n";
+	print ALIAS $js;
+	close(ALIAS);
+	
+}
+
+
+sub flickrUpload {
+	my($to_upload) = @_;
+	my $cf = flickr_parseconf();
+	my $ua = Flickr::Upload->new( $cf );
+	
+	$ua->agent( "flickr_upload/1.0" );
+	$ua->env_proxy();
+	
+	my $photoid = $ua->upload(photo=>$to_upload, auth_token=>$cf->{auth_token});
+	my $photohtml = 'http://www.flickr.com/photos/98707671@N05/'.int($photoid)."/sizes/o/in/photostream/";
+	return $photohtml;
+}
+
+################################################################
+# Attempts to grab the 'original photo' img-src from given url
+# the url is blindly trusted and assumed to be shell-safe
+sub getFullFlickrUrl {
+	my($fhtml) = @_;
+	
+	for(0..20) {
+		my $wget_hack = `wget -q -O - $fhtml`;
+		if($wget_hack =~ /<img src="([^"]+_o\.png)">/gm) {
+			return $1;
+		}
+		sleep(5);
+	}
+	return undef;
+}
+
+sub flickr_parseconf {
+	my $hr = { key=>'8dcf37880da64acfe8e30bb1091376b7', secret=>'2f3695d0562cdac7' };
+	open(CONFIG, "<", "$ENV{HOME}/.flickrrc" ) or die "could not open $ENV{HOME}/.flickrrc\n";
+	while( <CONFIG> ) {
+		chomp;
+		s/#.*$//;	# strip comments
+		next unless m/^\s*([a-z_]+)=(.+)\s*$/io;
+		$hr->{$1} = $2;
+	}
+	close CONFIG;
+	return $hr;
+}
+
+
+########################################################################################
+# Returns some random bytes
+sub getRandomBytes {
+	my($amount) = @_;
 	open(UR, "<", "/dev/urandom") or die "Could not open random device: $!\n";
-	my $IV;
-	sysread(UR, $IV, 16);
+	my $buff;
+	sysread(UR, $buff, $amount);
 	close(UR);
 	
-	die "Short IV!\n" if length($IV) != 16;
+	die "Short read!\n" if length($buff) != $amount;
 	
-	return $IV;
+	return $buff;
 }
 
-############################################
+########################################################################################
 # Convert data at FH $ifh into PNG stored in $ofh
 sub convertBlob {
 	my($ifh, $ofh, %args) = @_;
 	
 	my $BPP   = 3; # BytesPerPixel
 	my $oDF   = deflateInit();
-	my $fsize = (-s FH); # not the same as CONTENTSIZE or BLOBSIZE as the encrypted INPUT is already padded
+	my $fsize = (-s $ifh); # not the same as CONTENTSIZE or BLOBSIZE as the encrypted INPUT is already padded
 	my $sllen = ceil(sqrt($fsize/$BPP));
 	my $ihdr  = pack("N N C C C C C",$sllen, $sllen, 8, 2, 0, 0, 0); # w, h, bitdepth, colortype, compression, filter, interlace
 	
@@ -63,7 +139,7 @@ sub convertBlob {
 	
 	# store metadata
 	while(my($k,$v) = each(%args)) {
-		print "   + meta: $k = $v\n";
+#		print "   + meta: $k = $v\n";
 		print $ofh writeChunk("tEXt", "$k=$v");
 	}
 	
