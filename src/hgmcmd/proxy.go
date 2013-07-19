@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"time"
 	"encoding/json"
+	"encoding/hex"
 	"libhgms/flickr/png"
 	"libhgms/crypto/aestool"
 )
@@ -15,8 +16,8 @@ import (
 var backendClient *http.Client
 
 type AliasJSON struct {
-	Location [][]string
-	Key string
+	Location [][]string  /* Raw HTTP URL           */
+	Key string           /* 7-bit ascii hex string */
 }
 
 
@@ -32,10 +33,9 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	/* fixme: directory traversal */
 	aliasPath := fmt.Sprintf("./_aliases/%s", r.RequestURI)
 	
-	fmt.Printf("GET %s -> %s\n", r.RequestURI, aliasPath)
+	fmt.Printf("+ GET %s\n", aliasPath)
 	
 	content, err := ioutil.ReadFile(aliasPath);
-	
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, "File not found\n")
@@ -51,7 +51,13 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	serveFullURI(w, r, jsx.Key, jsx.Location)
+	/* Our encryption key is stored as an hex-ascii string
+	 * within the JSON file */
+	byteKey := make([]byte, len(jsx.Key)/2)
+	hex.Decode(byteKey, []byte(jsx.Key))
+	
+	/* We got all required info: serve HTTP request to client */
+	serveFullURI(w, r, byteKey, jsx.Location)
 }
 
 
@@ -59,9 +65,8 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
  * Handle request for given targetURI
  */
 
-func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, locArray [][]string) {
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArray [][]string) {
 	
-	fmt.Printf("====================================================== :: %d\n", len(locArray[0]))
 	for i:=0; ; i++ {
 		
 		currentURI := locArray[0][i]
@@ -95,7 +100,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, locArra
 			dst.WriteHeader(backendResp.StatusCode)
 		}
 		
-		aes, _ := aestool.New(pngReader.KeySize, pngReader.BlobSize, []byte(key), pngReader.IV);
+		aes, _ := aestool.New(pngReader.KeySize, pngReader.BlobSize, key, pngReader.IV);
 		err = aes.DecryptStream(dst, pngReader)
 		
 		backendResp.Body.Close()
@@ -104,6 +109,4 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key string, locArra
 			break
 		}
 	}
-	
-	fmt.Printf("== http request finished\n")
 }
