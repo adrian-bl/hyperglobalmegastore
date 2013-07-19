@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"compress/zlib"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 )
@@ -47,11 +46,15 @@ func NewReader(r io.Reader) (*reader, error) {
 
 // Initializes the PNG reader: Read the initial PNG magic and seek to the IDAT marker.
 // The function will initialize IV, ContentSize and BlobSize
-func (pr *reader) InitReader() {
+func (pr *reader) InitReader() error {
 	chunk := make([]byte, 8)
 	parseHeader := true
 
-	pr.r.Read(chunk) /* fixme: check png magic */
+	/* Verify PNG-Header magic */
+	pr.r.Read(chunk)
+	if string(chunk) != "\x89PNG\x0D\x0A\x1A\x0A" {
+		return errors.New("Invalid PNG header magic")
+	}
 
 	for parseHeader {
 		pr.r.Read(chunk) /* size of next chunk */
@@ -60,17 +63,23 @@ func (pr *reader) InitReader() {
 		if string(chunk[4:]) != "IDAT" && qlen < 4096 {
 			payload := make([]byte, qlen+4) /* 4 = length of CRC */
 			pr.r.Read(payload)
+
 			/* We read the CRC (to get to the correct position) but we are not using it
 			 * -> Therefore it's ok to throw it away now. FIXME: We should probably check the CRC at some later point */
 			payload = payload[:qlen]
 
 			if string(chunk[4:]) == "IHDR" {
-				bytesPerPixel := 3 /* fixme */
-				scanlineVal := xunpack(payload)
+				scanlineVal := xunpack(payload[0:4])
+				bytesPerPixel := 0
+				if payload[9] == 0x2 {
+					bytesPerPixel = 3
+				} else if payload[9] == 0x6 {
+					bytesPerPixel = 4
+				}
 				pr.slsize = scanlineVal * bytesPerPixel
 			} else if string(chunk[4:]) == "tEXt" {
 				pairs := bytes.SplitN(payload, []byte("="), 2)
-				fmt.Printf(">> [%s]=[%s]\n", pairs[0], pairs[1])
+
 				if string(pairs[0]) == "IV" {
 					pr.IV = pairs[1]
 				}
@@ -87,15 +96,19 @@ func (pr *reader) InitReader() {
 
 	}
 
+	/* scanline size must be > 0 */
+	if pr.slsize < 1 {
+		return errors.New("Invalid scanline size, corrupted or unsupported PNG header")
+	}
+
+	/* Add zlib reader to our struct */
 	zr, err := zlib.NewReader(pr.r)
 	if err != nil {
-		panic(err)
-	} /* fixme */
+		return err
+	}
 	pr.zr = zr
 
-	if pr.slsize == 0 {
-		panic(nil)
-	} /* fixme */
+	return nil
 }
 
 // Our public Read function. Returns the bytes read, err on error.
