@@ -2,7 +2,6 @@ package flickr
 
 import (
 	"os"
-	"fmt"
 	"libhgms/crypto/aestool"
 )
 
@@ -16,9 +15,7 @@ func CryptAes(key []byte, iv []byte, infile string, outfile string, encrypt bool
 	if err != nil { panic(err) }
 	defer fhOut.Close()
 	
-	fmt.Printf("Passkey=%X, IV=%X\n", key, iv)
-	
-	aes, err := aestool.New(16, -1, key, iv); /* fixme: random IV! */
+	aes, err := aestool.New(-1, key, iv);
 	if err != nil { panic(err) }
 	
 	if encrypt {

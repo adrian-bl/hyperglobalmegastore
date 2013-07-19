@@ -15,22 +15,16 @@ type AesTool struct {
 /*
  * Returns a new aestool object instance
  */
-func New(keySize int, streamlen int64, key []byte, iv []byte) (*AesTool, error) {
+func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 	
-	paddedKey := make([]byte, keySize)
-	paddedIV := make([]byte, keySize)
-	copy(paddedKey, []byte(key))
-	copy(paddedIV, []byte(iv))
-	
-	
-	aesCipher, err := aes.NewCipher(paddedKey)
+	aesCipher, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 	
-	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, paddedIV)
-	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, paddedIV)
+	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, iv)
+	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, iv)
 	aesTool.streamlen = streamlen
 	
 	return &aesTool, nil

@@ -100,7 +100,9 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArra
 			dst.WriteHeader(backendResp.StatusCode)
 		}
 		
-		aes, _ := aestool.New(pngReader.KeySize, pngReader.BlobSize, key, pngReader.IV);
+		fmt.Printf(">KeySize =%, ivsize=%dd\n", len(key), len(pngReader.IV))
+		
+		aes, _ := aestool.New(pngReader.BlobSize, key, pngReader.IV);
 		err = aes.DecryptStream(dst, pngReader)
 		
 		backendResp.Body.Close()

@@ -8,11 +8,11 @@ use POSIX qw(ceil);
 
 $| = 1;
 
-my $keysize = 128;
+my $keysize = 256;
 
 
 foreach my $to_upload (@ARGV) {
-	my $iv     = getRandomBytes($keysize/8);
+	my $iv     = getRandomBytes(16); # aes block size constant
 	my $key    = getRandomBytes($keysize/8);
 	my $fsize  = (-s $to_upload);
 	my $encout = "tmp.encrypted.$$";

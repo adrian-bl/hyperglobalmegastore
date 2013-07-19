@@ -15,7 +15,6 @@ type reader struct {
 	decoded []byte       /* decoded -> scanline-free */
 	slsize int           /* scanline length          */
 	IV []byte            /* IV used by this image    */
-	KeySize int          /* AES keysize in BYTES     */
 	ContentSize int64    /* Content-Size sent in HTTP header */
 	BlobSize int64       /* Size of this blob        */
 }
@@ -55,7 +54,7 @@ func (pr *reader) InitReader() {
 			} else if string(chunk[4:]) == "tEXt" {
 				pairs := bytes.SplitN(payload, []byte("="), 2)
 				fmt.Printf(">> [%s]=[%s]\n", pairs[0], pairs[1]);
-				if string(pairs[0]) == "IV" { pr.IV = pairs[1] }
+				if string(pairs[0]) == "IV"          { pr.IV = pairs[1]}
 				if string(pairs[0]) == "CONTENTSIZE" { pr.ContentSize, _ = strconv.ParseInt(string(pairs[1]), 10, 64) }
 				if string(pairs[0]) == "BLOBSIZE"    { pr.BlobSize, _ = strconv.ParseInt(string(pairs[1]), 10, 64) }
 			}
@@ -70,7 +69,6 @@ func (pr *reader) InitReader() {
 	pr.zr = zr
 	
 	if pr.slsize == 0 { panic(nil) } /* fixme */
-	pr.KeySize = 16 /* fixme: should parse ENCRYPTION=aes128 field */
 }
 
 func (pr *reader) Read(p []byte) (n int, err error) {
