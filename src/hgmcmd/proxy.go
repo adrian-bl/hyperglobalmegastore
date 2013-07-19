@@ -23,9 +23,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"libhgms/crypto/aestool"
 	"libhgms/flickr/png"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -41,38 +43,88 @@ func LaunchProxy(bindAddr string, bindPort string) {
 	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second}
 	backendClient = &http.Client{Transport: tr}
 
+	/* Fixme: IPv6 and basic validation (port 0 should be refused */
+	bindString := fmt.Sprintf("%s:%s", bindAddr, bindPort);
+	fmt.Printf("Proxy accepting connections at http://%s\n", bindString)
+
 	http.HandleFunc("/", handleAlias)
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(bindString, nil)
 }
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
-	/* fixme: directory traversal */
+	/* passing this directly to the FS should be ok:
+	 * the http package won't accept paths to ../../, but a basic cleanup wouldn't hurt (FIXME) */
 	aliasPath := fmt.Sprintf("./_aliases/%s", r.RequestURI)
 
 	fmt.Printf("+ GET %s\n", aliasPath)
 
-	content, err := ioutil.ReadFile(aliasPath)
+	fi, err := os.Stat(aliasPath)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, "File not found\n")
 		return
 	}
 
-	var jsx AliasJSON
-	err = json.Unmarshal([]byte(content), &jsx)
+	if fi.IsDir() {
+		if 1 == 0 {
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, "Directory listing disabled\n")
+		} else {
+			writeDirectoryList(w, aliasPath)
+		}
+		return
+	}
+	
+	/* normal file */
+	content, err := ioutil.ReadFile(aliasPath)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, "corrupted metadata\n")
+		io.WriteString(w, "Failed to read json file")
+		return
+	}
+	
+	var js AliasJSON
+	err = json.Unmarshal([]byte(content), &js)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, "Corrupted metadata")
 		return
 	}
 
 	/* Our encryption key is stored as an hex-ascii string
 	 * within the JSON file */
-	byteKey := make([]byte, len(jsx.Key)/2)
-	hex.Decode(byteKey, []byte(jsx.Key))
+	byteKey := make([]byte, len(js.Key)/2)
+	hex.Decode(byteKey, []byte(js.Key))
 
 	/* We got all required info: serve HTTP request to client */
-	serveFullURI(w, r, byteKey, jsx.Location)
+	serveFullURI(w, r, byteKey, js.Location)
+}
+
+func writeDirectoryList(w http.ResponseWriter, fspath string) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	dirList, _ := ioutil.ReadDir(fspath)
+	
+	imgBase := "http://tiny.cdn.eqmx.net/icons/tango/16x16/status/"
+	
+	io.WriteString(w, "<html><head><body><h3>Index of /neverland</h3><hr>\n")
+	
+	io.WriteString(w, fmt.Sprintf("<img src=\"%s../actions/back.png\"> <a href=../>back</a><br>\n", imgBase))
+	
+	for fidx := range dirList {
+		fi := dirList[fidx]
+		saveName := url.QueryEscape(fi.Name())
+		desc := fmt.Sprintf("%s/stock_attach.png", imgBase)
+		if fi.IsDir() {
+			desc = fmt.Sprintf("%s/stock_open.png", imgBase)
+			saveName = fmt.Sprintf("%s/", saveName)
+		}
+
+		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, saveName, saveName))
+	}
+	
+	io.WriteString(w, "</hr></body></html>\n")
+	
 }
 
 /*
