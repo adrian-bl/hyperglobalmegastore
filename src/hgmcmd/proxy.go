@@ -26,6 +26,7 @@ import (
 	"os"
 	"libhgms/crypto/aestool"
 	"libhgms/flickr/png"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
@@ -133,48 +134,73 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
 
 func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArray [][]string) {
 
-	for i := 0; ; i++ {
+	headersSent := false
+	numCopies := len(locArray)
+	numBlobs := len(locArray[0])
+	fmt.Printf("# stream has %d location(s) and %d chunks\n", numCopies, numBlobs)
 
-		currentURI := locArray[0][i]
+	for bi := 0; bi<numBlobs; bi++ {
+		copyList := rand.Perm(numCopies)
+		fmt.Printf("== serving blob %d/%d\n", bi+1, numBlobs);
 
-		fmt.Printf("PART %d OF STREAM -> %s\n", i, currentURI)
+		servedCopy := false
+		for _, ci := range copyList {
+			currentURI := locArray[ci][bi]
+			fmt.Printf("  >> replica %d -> checking %s\n", ci, currentURI)
 
-		backendRQ, err := http.NewRequest("GET", currentURI, nil)
-		if err != nil {
-			if i == 0 {
+			backendRQ, err := http.NewRequest("GET", currentURI, nil)
+			if err != nil {
+				continue
+			}
+
+			backendResp, err := backendClient.Do(backendRQ)
+			if err != nil {
+				continue
+			}
+
+			pngReader, err := flickr.NewReader(backendResp.Body)
+			if err != nil {
+				backendResp.Body.Close()
+				continue
+			}
+
+			err = pngReader.InitReader()
+			if err != nil {
+				backendResp.Body.Close()
+				continue
+			}
+
+			if headersSent == false {
+				headersSent = true
+				dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
+				dst.WriteHeader(http.StatusOK)
+			}
+
+			aes, err := aestool.New(pngReader.BlobSize, key, pngReader.IV)
+			if err != nil {
+				panic(err) /* this would most likely be a bug in pngReader.InitReader() */
+			}
+
+			fmt.Printf("  >> replica %d is ok, starting copy stream...\n", ci)
+			err = aes.DecryptStream(dst, pngReader)
+			backendResp.Body.Close()
+
+			if err != nil {
+				panic(err)
+			}
+
+			servedCopy = true
+			break
+		}
+
+		if servedCopy == false {
+			if headersSent == false {
 				dst.WriteHeader(http.StatusInternalServerError)
-				io.WriteString(dst, "Internal server errror :-(\n")
+				io.WriteString(dst, "Internal server error :-(\n")
 			}
-			break
-		}
-
-		backendResp, err := backendClient.Do(backendRQ)
-		if err != nil {
-			if i == 0 {
-				dst.WriteHeader(http.StatusServiceUnavailable)
-				io.WriteString(dst, "Could not connect to remote server\n")
-			}
-			break
-		}
-
-		pngReader, err := flickr.NewReader(backendResp.Body)
-		if err != nil {
-			panic(err)
-		}
-		pngReader.InitReader()
-
-		if i == 0 {
-			dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
-			dst.WriteHeader(backendResp.StatusCode)
-		}
-
-		aes, _ := aestool.New(pngReader.BlobSize, key, pngReader.IV)
-		err = aes.DecryptStream(dst, pngReader)
-
-		backendResp.Body.Close()
-
-		if err != nil || len(locArray[0]) == i+1 {
+			fmt.Printf("failed to deliver blob %d, aborting request\n", bi+1)
 			break
 		}
 	}
+
 }
