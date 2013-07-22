@@ -5,11 +5,21 @@ use JSON qw(to_json from_json);
 use String::CRC32 qw(crc32);
 use Compress::Zlib;
 use POSIX qw(ceil);
+use Getopt::Long;
 
 $| = 1;
 
+my $getopts = {};
+
+GetOptions($getopts, "prefix|p=s") or exit 1;
+
 my $keysize      = 256;
 my $max_blobsize = 1024*1024*51;
+my $metadir = "./_aliases/$getopts->{prefix}";
+
+unless (-d $metadir) {
+	system("mkdir", "-p", $metadir) and die "mkdir -p $metadir failed: $!\n";
+}
 
 foreach my $source_file (@ARGV) {
 	my @source_parts = ();
@@ -20,9 +30,9 @@ foreach my $source_file (@ARGV) {
 	
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
-	my $metaout = $source_file;
+	my $metaout = ( split("/",$source_file) )[-1];
 	   $metaout =~ tr/a-zA-Z0-9\.-/_/c;
-	   $metaout = "./_aliases/$metaout";
+	   $metaout = "$metadir/$metaout";
 	my $json = getJSON($metaout);
 	
 	print "file=$source_file, meta=$metaout ($fsize bytes)...\n   ";
