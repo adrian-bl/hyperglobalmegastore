@@ -67,13 +67,28 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if fi.IsDir() {
-		if 1 == 0 {
-			w.WriteHeader(http.StatusForbidden)
-			io.WriteString(w, "Directory listing disabled\n")
-		} else {
-			writeDirectoryList(w, aliasPath)
+		/* primitive redirect: fixme: what happens behind a reverse proxy? */
+		if aliasPath[len(aliasPath)-1:] != "/" {
+			http.Redirect(w, r, r.RequestURI+"/", http.StatusFound)
+			return
 		}
-		return
+
+		/* check if we have an index.html */
+		idxAliasPath := aliasPath+"/index.html"
+		_, err := os.Stat(idxAliasPath)
+
+		if err != nil {
+			/* no index, handle dirlist: */
+			if 1 == 0 {
+				w.WriteHeader(http.StatusForbidden)
+				io.WriteString(w, "Directory listing disabled\n")
+			} else {
+				writeDirectoryList(w, aliasPath)
+			}
+			return
+		} else {
+			aliasPath = idxAliasPath
+		}
 	}
 	
 	/* normal file */
