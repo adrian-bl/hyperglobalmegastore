@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use Flickr::Upload;
-use JSON qw(to_json);
+use JSON qw(to_json from_json);
 use String::CRC32 qw(crc32);
 use Compress::Zlib;
 use POSIX qw(ceil);
@@ -12,16 +12,31 @@ my $keysize      = 256;
 my $max_blobsize = 1024*1024*51;
 
 foreach my $source_file (@ARGV) {
+	my @source_parts = ();
+	my @remote_parts = ();
 	my $iv     = getRandomBytes(16); # aes block size constant
 	my $key    = getRandomBytes($keysize/8);
 	my $fsize  = (-s $source_file);
+	
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
+	my $metaout = $source_file;
+	   $metaout =~ tr/a-zA-Z0-9\.-/_/c;
+	   $metaout = "./_aliases/$metaout";
+	my $json = getJSON($metaout);
 	
-	print "file=$source_file ($fsize bytes)...\n   ";
+	print "file=$source_file, meta=$metaout ($fsize bytes)...\n   ";
 	
-	my @source_parts = ();
-	my @remote_parts = ();
+	if(exists($json->{Key})) {
+		# inherit existing key. fixme: should check keylength and abort if keysize is wrong
+		$key = pack("H*",$json->{Key});
+		print "# metadata exists, adding new copy with same encryption key\n";
+	} else {
+		# no existing info: create a prototype
+		$json = { Blobsize=>$max_blobsize, Created=>time(), Location=> [], Key=>unpack("H*",$key) };
+		print "# creating new metadata at $metaout\n";
+	}
+	
 	
 	if($fsize > $max_blobsize) {
 		system("rm x?? 2>/dev/null");
@@ -64,25 +79,26 @@ foreach my $source_file (@ARGV) {
 		unlink($pngout);
 	}
 	
-	
-	storeJSON(Source=>$source_file, Key=>$key, Location=>[ \@remote_parts ]);
+	push(@{$json->{Location}}, \@remote_parts);
+	storeJSON($metaout, $json);
 	
 }
 
+sub getJSON {
+	my($path) = @_;
+	open(META, "<", $path) or return {};
+	my $jref = from_json(join("", <META>));
+	close(META);
+	return (ref($jref) eq 'HASH' ? $jref : {});
+}
 
 sub storeJSON {
-	my(%args) = @_;
-	
-	my $json_fname = ( split('/', $args{Source}) )[-1];
-	$json_fname =~ tr/a-zA-Z0-9\.-/_/c;
-	my $ref = { Location=>$args{Location}, Key=>unpack("H*", $args{Key}) };
-	my $js  = to_json($ref, { utf8=>1, pretty=>1});
-	
-	open(ALIAS, ">", "./_aliases/$json_fname") or die "Could not write alias\n";
-	print ALIAS $js;
-	close(ALIAS);
-	
+	my($metaout, $jref) = @_;
+	open(META, ">", $metaout) or die "Could not write to $metaout: $!\n";
+	print META to_json($jref, {utf8=>1, pretty=>1});
+	close(META);
 }
+
 
 
 sub flickrUpload {
