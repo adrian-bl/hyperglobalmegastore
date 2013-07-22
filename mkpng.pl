@@ -8,44 +8,64 @@ use POSIX qw(ceil);
 
 $| = 1;
 
-my $keysize = 256;
+my $keysize      = 256;
+my $max_blobsize = 1024*1024*51;
 
-
-foreach my $to_upload (@ARGV) {
+foreach my $source_file (@ARGV) {
 	my $iv     = getRandomBytes(16); # aes block size constant
 	my $key    = getRandomBytes($keysize/8);
-	my $fsize  = (-s $to_upload);
+	my $fsize  = (-s $source_file);
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
 	
-	print "file=$to_upload ($fsize bytes)...\n   ";
+	print "file=$source_file ($fsize bytes)...\n   ";
 	
-	# first step is to encrypt the file using hgcmd:
-	print "encrypting";
-	system("./hgmcmd", "encrypt", unpack("H*", $key), unpack("H*", $iv), $to_upload, $encout);
-	unless(open(ENC_FH, "<", $encout)) {
-		warn "could not open $encout: $!, skipping $to_upload\n";
-		next;
+	my @source_parts = ();
+	my @remote_parts = ();
+	
+	if($fsize > $max_blobsize) {
+		system("rm x?? 2>/dev/null");
+		system("split", "-b", $max_blobsize, $source_file);
+		@source_parts = (sort({$a<=>$b} glob("x??")));
+		print "# file split into parts: @source_parts\n";
 	}
-	unlink($encout);
+	else {
+		@source_parts = ('xaa');
+		symlink($source_file, 'xaa') or die "symlink() failed: $!\n";
+	}
 	
-	# ENC_FH points to the encrypted file: We can now convert it into a PNG file
-	print " convert";
-	open(PNG_FH, ">", $pngout) or die "Could not create tempfile $pngout: $!\n";
-	convertBlob(*ENC_FH, *PNG_FH, CONTENTSIZE=>$fsize, BLOBSIZE=>$fsize, IV=>$iv);
-	close(PNG_FH);
-	close(ENC_FH);
+	foreach my $this_part (@source_parts) {
+		my $blobsize = (-s $this_part);
+		
+		# first step is to encrypt the file using hgcmd:
+		print "[$this_part] encrypting";
+		system("./hgmcmd", "encrypt", unpack("H*", $key), unpack("H*", $iv), $this_part, $encout);
+		unless(open(ENC_FH, "<", $encout)) {
+			warn "could not open $encout: $!, skipping $this_part\n";
+			next;
+		}
+		unlink($this_part);
+		unlink($encout); # still got the open FH
+		
+		# ENC_FH points to the encrypted file: We can now convert it into a PNG file
+		print " convert";
+		open(PNG_FH, ">", $pngout) or die "Could not create tempfile $pngout: $!\n";
+		convertBlob(*ENC_FH, *PNG_FH, CONTENTSIZE=>$fsize, BLOBSIZE=>$blobsize, IV=>$iv);
+		close(PNG_FH);
+		close(ENC_FH);
+		
+		# The png file is now ready at $pngout: time to upload it to flickr
+		print " upload";
+		my $photo_html = flickrUpload($pngout);
+		print " verify";
+		my $orig_photo = getFullFlickrUrl($photo_html);
+		push(@remote_parts, $orig_photo);
+		print "\n";
+		unlink($pngout);
+	}
 	
-	# The png file is now ready at $pngout: time to upload it to flickr
-	print " upload";
-	my $photo_html = flickrUpload($pngout);
-	unlink($pngout);
 	
-	print " verify";
-	my $orig_photo = getFullFlickrUrl($photo_html);
-	print "\n";
-	
-	storeJSON(Source=>$to_upload, Key=>$key, Location=>[ [ $orig_photo ] ]);
+	storeJSON(Source=>$source_file, Key=>$key, Location=>[ \@remote_parts ]);
 	
 }
 

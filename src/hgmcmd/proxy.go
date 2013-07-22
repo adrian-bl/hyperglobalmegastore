@@ -123,7 +123,7 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
 		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, saveName, saveName))
 	}
 	
-	io.WriteString(w, "</hr></body></html>\n")
+	io.WriteString(w, "</hr><br><br><font size=-2><i>Powered by HyperGlobalMegaStore</i></font></body></html>\n")
 	
 }
 
