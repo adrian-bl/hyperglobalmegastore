@@ -22,6 +22,12 @@ unless (-d $metadir) {
 }
 
 foreach my $source_file (@ARGV) {
+	
+	unless (-f $source_file) {
+		print "skipping '$source_file'\n";
+		next;
+	}
+	
 	my @source_parts = ();
 	my @remote_parts = ();
 	my $iv     = getRandomBytes(16); # aes block size constant
