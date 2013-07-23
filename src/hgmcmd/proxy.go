@@ -36,8 +36,9 @@ import (
 var backendClient *http.Client
 
 type AliasJSON struct {
-	Location [][]string /* Raw HTTP URL           */
-	Key      string     /* 7-bit ascii hex string */
+	Location [][]string /* Raw HTTP URL            */
+	Key      string     /* 7-bit ascii hex string  */
+	Created int64       /* file-creation timestamp */
 }
 
 func LaunchProxy(bindAddr string, bindPort string) {
@@ -107,13 +108,21 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIMS, _ := time.Parse(http.TimeFormat, r.Header.Get("If-Modified-Since"))
+	if clientIMS.Unix() > 0 && js.Created <= clientIMS.Unix() {
+		w.WriteHeader(http.StatusNotModified)
+		io.WriteString(w, "Not modified")
+		return
+	}
+	
+
 	/* Our encryption key is stored as an hex-ascii string
 	 * within the JSON file */
 	byteKey := make([]byte, len(js.Key)/2)
 	hex.Decode(byteKey, []byte(js.Key))
 
 	/* We got all required info: serve HTTP request to client */
-	serveFullURI(w, r, byteKey, js.Location)
+	serveFullURI(w, r, byteKey, js)
 }
 
 func writeDirectoryList(w http.ResponseWriter, fspath string) {
@@ -147,9 +156,10 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
  * Handle request for given targetURI
  */
 
-func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArray [][]string) {
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, js AliasJSON) {
 
 	headersSent := false
+	locArray := js.Location
 	numCopies := len(locArray)
 	numBlobs := len(locArray[0])
 	fmt.Printf("# stream has %d location(s) and %d chunks\n", numCopies, numBlobs)
@@ -188,6 +198,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, locArra
 			if headersSent == false {
 				headersSent = true
 				dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
+				dst.Header().Set("Last-Modified", time.Unix(js.Created, 0).Format(http.TimeFormat))
 				dst.WriteHeader(http.StatusOK)
 			}
 
