@@ -35,7 +35,7 @@ import (
 /* Custom HTTP Client, setup done in main() */
 var backendClient *http.Client
 
-type AliasJSON struct {
+type RqMeta struct {
 	Location [][]string /* Raw HTTP URL            */
 	Key      string     /* 7-bit ascii hex string  */
 	Created int64       /* file-creation timestamp */
@@ -100,7 +100,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	var js AliasJSON
+	var js RqMeta
 	err = json.Unmarshal([]byte(content), &js)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -115,14 +115,8 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-
-	/* Our encryption key is stored as an hex-ascii string
-	 * within the JSON file */
-	byteKey := make([]byte, len(js.Key)/2)
-	hex.Decode(byteKey, []byte(js.Key))
-
 	/* We got all required info: serve HTTP request to client */
-	serveFullURI(w, r, byteKey, js)
+	serveFullURI(w, r, js)
 }
 
 func writeDirectoryList(w http.ResponseWriter, fspath string) {
@@ -156,10 +150,15 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
  * Handle request for given targetURI
  */
 
-func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, js AliasJSON) {
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
+
+	/* Our encryption key is stored as an hex-ascii string
+	 * within the JSON file */
+	key := make([]byte, len(rqm.Key)/2)
+	hex.Decode(key, []byte(rqm.Key))
 
 	headersSent := false
-	locArray := js.Location
+	locArray := rqm.Location
 	numCopies := len(locArray)
 	numBlobs := len(locArray[0])
 	fmt.Printf("# stream has %d location(s) and %d chunks\n", numCopies, numBlobs)
@@ -198,7 +197,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, key []byte, js Alia
 			if headersSent == false {
 				headersSent = true
 				dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
-				dst.Header().Set("Last-Modified", time.Unix(js.Created, 0).Format(http.TimeFormat))
+				dst.Header().Set("Last-Modified", time.Unix(rqm.Created, 0).Format(http.TimeFormat))
 				dst.WriteHeader(http.StatusOK)
 			}
 
