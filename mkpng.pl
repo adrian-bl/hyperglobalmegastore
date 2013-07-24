@@ -32,7 +32,7 @@ foreach my $source_file (@ARGV) {
 	my @remote_parts = ();
 	my $iv     = getRandomBytes(16); # aes block size constant
 	my $key    = getRandomBytes($keysize/8);
-	my $fsize  = (-s $source_file);
+	my $fsize  = int(-s $source_file);
 	
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
@@ -49,7 +49,7 @@ foreach my $source_file (@ARGV) {
 		print "# metadata exists, adding new copy with same encryption key\n";
 	} else {
 		# no existing info: create a prototype
-		$json = { Blobsize=>$max_blobsize, Created=>time(), Location=> [], Key=>unpack("H*",$key) };
+		$json = { ContentSize=>$fsize, BlobSize=>$max_blobsize, Created=>time(), Location=> [], Key=>unpack("H*",$key) };
 		print "# creating new metadata at $metaout\n";
 	}
 	

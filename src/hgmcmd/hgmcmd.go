@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"libhgms/flickr/png"
+	"hgmfs"
 	"os"
 )
 
@@ -37,6 +38,8 @@ func main() {
 		flickr.CryptAes(strToSlice(os.Args[2]), strToSlice(os.Args[3]), os.Args[4], os.Args[5], false)
 	} else if subModule == "proxy" && len(os.Args) == 4 {
 		LaunchProxy(os.Args[2], os.Args[3])
+	} else if subModule == "mount" && len(os.Args) == 3 {
+		hgmfs.MountFilesystem(os.Args[2])
 	} else {
 		fmt.Printf("Usage: %s encrypt pass IV in out|decrypt pass IV in out|proxy bindaddr port\n", os.Args[0])
 	}
