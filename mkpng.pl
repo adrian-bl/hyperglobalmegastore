@@ -54,8 +54,8 @@ foreach my $source_file (@ARGV) {
 	}
 	
 	
+	system("rm x?? 2>/dev/null");
 	if($fsize > $max_blobsize) {
-		system("rm x?? 2>/dev/null");
 		system("split", "-b", $max_blobsize, $source_file);
 		@source_parts = (sort({$a<=>$b} glob("x??")));
 		print "# file split into parts: @source_parts\n";
