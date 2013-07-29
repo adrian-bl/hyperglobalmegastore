@@ -46,8 +46,9 @@ type RqMeta struct {
 	RangeFrom int64
 }
 
+
 func LaunchProxy(bindAddr string, bindPort string) {
-	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second}
+	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
 	backendClient = &http.Client{Transport: tr}
 
 	/* Fixme: IPv6 and basic validation (port 0 should be refused */
