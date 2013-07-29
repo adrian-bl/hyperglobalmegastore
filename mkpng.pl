@@ -14,7 +14,7 @@ my $getopts = {};
 GetOptions($getopts, "prefix|p=s") or exit 1;
 
 my $keysize      = 256;
-my $max_blobsize = 1024*1024*10;
+my $max_blobsize = 1024*1024*16;
 my $metadir = "./_aliases/$getopts->{prefix}";
 
 unless (-d $metadir) {

@@ -42,6 +42,7 @@ type RqMeta struct {
 	Location [][]string /* Raw HTTP URL            */
 	Key      string     /* 7-bit ascii hex string  */
 	Created int64       /* file-creation timestamp */
+	BlobSize int64
 	RangeFrom int64
 }
 
@@ -170,20 +171,25 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 	key := make([]byte, len(rqm.Key)/2)
 	hex.Decode(key, []byte(rqm.Key))
 
-	headersSent := false
-	locArray := rqm.Location
-	skipBytes := rqm.RangeFrom
-	numCopies := len(locArray)
-	numBlobs := len(locArray[0])
-	fmt.Printf("# stream has %d location(s) and %d chunks\n", numCopies, numBlobs)
+	headersSent := false                /* True if we already sent the http header */
+	locArray := rqm.Location            /* Array with all blob locations           */
+	numCopies := len(locArray)          /* Number of replicas in rqmeta            */
+	numBlobs := int64(len(locArray[0])) /* Total number of blobs                   */
+	skipBytes := rqm.RangeFrom          /* How many bytes shall we throw away?     */
 
-	for bi := 0; bi<numBlobs; bi++ {
+/* fixme: div-by-zero: should we care? */
+	bIdx := int64( skipBytes / rqm.BlobSize )
+	skipBytes -= bIdx * rqm.BlobSize
+
+	fmt.Printf("# stream has %d location(s) and %d chunks, firstBlob is: %d, skip=%d\n", numCopies, numBlobs, bIdx, skipBytes)
+
+	for ; bIdx<numBlobs; bIdx++ {
 		copyList := rand.Perm(numCopies)
-		fmt.Printf("== serving blob %d/%d\n", bi+1, numBlobs);
+		fmt.Printf("== serving blob %d/%d\n", bIdx+1, numBlobs);
 
 		servedCopy := false
 		for _, ci := range copyList {
-			currentURI := locArray[ci][bi]
+			currentURI := locArray[ci][bIdx]
 			fmt.Printf("  >> replica %d -> checking %s\n", ci, currentURI)
 
 			backendRQ, err := http.NewRequest("GET", currentURI, nil)
@@ -245,7 +251,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 				dst.WriteHeader(http.StatusInternalServerError)
 				io.WriteString(dst, "Internal server error :-(\n")
 			}
-			fmt.Printf("failed to deliver blob %d, aborting request\n", bi+1)
+			fmt.Printf("failed to deliver blob %d, aborting request\n", bIdx+1)
 			break
 		}
 	}
