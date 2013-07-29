@@ -29,16 +29,20 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"time"
 )
 
 /* Custom HTTP Client, setup done in main() */
 var backendClient *http.Client
+var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$");
 
 type RqMeta struct {
 	Location [][]string /* Raw HTTP URL            */
 	Key      string     /* 7-bit ascii hex string  */
 	Created int64       /* file-creation timestamp */
+	RangeFrom int64
 }
 
 func LaunchProxy(bindAddr string, bindPort string) {
@@ -115,6 +119,15 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
+	rangeMatches := reHttpRange.FindStringSubmatch(r.Header.Get("Range"))
+	if len(rangeMatches) == 2 {/* [0]=text, [1]=range_bytes */
+		js.RangeFrom, _ = strconv.ParseInt(rangeMatches[1], 10, 64)
+	} else {
+		js.RangeFrom = 0
+	}
+	
+	fmt.Printf(">>>>>> %d >>> %s\n", js.RangeFrom, r.Header.Get("Range"))
+	
 	/* We got all required info: serve HTTP request to client */
 	serveFullURI(w, r, js)
 }
@@ -159,6 +172,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 
 	headersSent := false
 	locArray := rqm.Location
+	skipBytes := rqm.RangeFrom
 	numCopies := len(locArray)
 	numBlobs := len(locArray[0])
 	fmt.Printf("# stream has %d location(s) and %d chunks\n", numCopies, numBlobs)
@@ -196,9 +210,16 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 
 			if headersSent == false {
 				headersSent = true
-				dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 				dst.Header().Set("Last-Modified", time.Unix(rqm.Created, 0).Format(http.TimeFormat))
-				dst.WriteHeader(http.StatusOK)
+				
+				if rqm.RangeFrom == 0 {
+					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
+					dst.WriteHeader(http.StatusOK)
+				} else {
+					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize - rqm.RangeFrom))
+					dst.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rqm.RangeFrom, pngReader.ContentSize-1, pngReader.ContentSize))
+					dst.WriteHeader(http.StatusPartialContent)
+				}
 			}
 
 			aes, err := aestool.New(pngReader.BlobSize, key, pngReader.IV)
@@ -206,7 +227,8 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 				panic(err) /* this would most likely be a bug in pngReader.InitReader() */
 			}
 
-			fmt.Printf("  >> replica %d is ok, starting copy stream...\n", ci)
+			fmt.Printf("  >> replica %d is ok, starting copy stream..., sb=%d\n", ci, skipBytes)
+			aes.SetSkipBytes(&skipBytes)
 			err = aes.DecryptStream(dst, pngReader)
 			backendResp.Body.Close()
 

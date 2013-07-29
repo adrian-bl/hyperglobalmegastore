@@ -21,12 +21,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"io"
+	"fmt"
 )
 
 type AesTool struct {
 	encrypter cipher.BlockMode
 	decrypter cipher.BlockMode
 	streamlen int64
+	skipbytes *int64
 }
 
 // Returns a new aestool instance. The streamlen parameter specifies
@@ -40,11 +42,18 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 		return nil, err
 	}
 
+	sbNil := int64(0)
 	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, iv)
 	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, iv)
 	aesTool.streamlen = streamlen
+	aesTool.SetSkipBytes(&sbNil)
 
 	return &aesTool, nil
+}
+
+func (self *AesTool) SetSkipBytes(sb *int64) {
+	fmt.Printf("SKIP: %d\n", *sb)
+	self.skipbytes = sb
 }
 
 // Handles all decryption and encryption work
@@ -53,6 +62,8 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 	blockBuf := make([]byte, blockSize)
 
 	for self.streamlen != 0 {
+		wFrom := int64(0)
+		wTo := int64(blockSize)
 		_, er := io.ReadFull(src, blockBuf)
 
 		if er == io.EOF {
@@ -66,12 +77,31 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 		cb.CryptBlocks(blockBuf, blockBuf)
 
 		if self.streamlen > -1 && int64(len(blockBuf)) > self.streamlen {
-			blockBuf = blockBuf[:self.streamlen]
+			/* blockBuf = blockBuf[:self.streamlen] */
+			wTo = self.streamlen
 		}
-		nw, ew := dst.Write(blockBuf)
+		
+		if *self.skipbytes != 0 {
+/*			fmt.Printf("> should skip a total of %d bytes\n", *self.skipbytes) */
+			canSkipNow := wTo - wFrom
+			if canSkipNow > *self.skipbytes {
+				canSkipNow = *self.skipbytes
+			}
+			wFrom = canSkipNow
+/*			fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo) */
+			*self.skipbytes -= canSkipNow
+			self.streamlen -= canSkipNow
+
+			if wFrom == wTo {
+				fmt.Printf("Skipping zero-sized write\n")
+				continue
+			}
+		}
+		
+		nw, ew := dst.Write(blockBuf[wFrom:wTo])
 		self.streamlen -= int64(nw)
 
-		if nw != len(blockBuf) {
+		if int64(nw) != (wTo - wFrom) {
 			err = io.ErrShortWrite
 			break
 		}

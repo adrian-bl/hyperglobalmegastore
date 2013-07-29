@@ -14,7 +14,7 @@ my $getopts = {};
 GetOptions($getopts, "prefix|p=s") or exit 1;
 
 my $keysize      = 256;
-my $max_blobsize = 1024*1024*51;
+my $max_blobsize = 1024*1024*10;
 my $metadir = "./_aliases/$getopts->{prefix}";
 
 unless (-d $metadir) {
@@ -49,7 +49,7 @@ foreach my $source_file (@ARGV) {
 		print "# metadata exists, adding new copy with same encryption key\n";
 	} else {
 		# no existing info: create a prototype
-		$json = { ContentSize=>$fsize, BlobSize=>$max_blobsize, Created=>time(), Location=> [], Key=>unpack("H*",$key) };
+		$json = { ContentSize=>int($fsize), BlobSize=>int($max_blobsize), Created=>time(), Location=> [], Key=>unpack("H*",$key) };
 		print "# creating new metadata at $metaout\n";
 	}
 	
