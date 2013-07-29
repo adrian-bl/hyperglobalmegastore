@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"syscall"
 	"sync"
+	"math/rand"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/hanwen/go-fuse/fuse/pathfs"
@@ -29,12 +30,16 @@ type HgmFs struct {
 }
 
 type hgmFile struct {
-	lock sync.Mutex
+	sync.Mutex
 	fuseFilename string
 	jsonMetafile string
 	jsonMetadata JsonMeta
 	offset int64
 	resp *http.Response
+	readQueue struct {
+		sync.Mutex
+		nwait int
+	}
 }
 
 
@@ -92,28 +97,39 @@ func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
 	return fuse.EPERM
 }
 func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
-	fmt.Printf("READ fname=%s, offset=%d, myoff=%d\n", f.fuseFilename, off, f.offset)
-	for i:=0;i<5;i++ {
-		if off != f.offset {
-			fmt.Printf("want %d, have %d -> wait\n", off, f.offset)
+	rqid := rand.Int31()
+	
+	f.readQueue.Lock()
+	otherWaiting := f.readQueue.nwait
+	f.readQueue.nwait++
+	f.readQueue.Unlock()
+	
+	fmt.Printf("<%08X> READ fname=%s, offset=%d, myoff=%d, waiters=%d\n", rqid, f.fuseFilename, off, f.offset, otherWaiting)
+	for i:=0;otherWaiting > 0 && i<5;i++ {
+		if off != f.offset && f.readQueue.nwait > 1 {
+			fmt.Printf("<%08X> want %d, have %d -> wait (%d)\n", rqid, off, f.offset, f.readQueue.nwait)
 			time.Sleep(0.02*1e9)
 		} else {
 			break
 		}
 	}
 	
-	f.lock.Lock()
-	defer f.lock.Unlock()
+	f.readQueue.Lock()
+	f.readQueue.nwait--
+	f.readQueue.Unlock()
+	
+	f.Lock()
+	defer f.Unlock()
 	
 	if off != f.offset && f.resp != nil {
-		fmt.Printf("Closing existing http request to fulfill request for offset %d\n", off)
+		fmt.Printf("<%08X> Closing existing http request to fulfill request for offset %d\n", rqid, off)
 		f.offset = 0
 		f.resp.Body.Close()
 		f.resp = nil
 	}
 	
 	if f.resp == nil {
-		fmt.Printf("--> first request for %s, starting http request at offset %d\n", f.fuseFilename, off)
+		fmt.Printf("<%08X> first request for %s, starting http request at offset %d\n", rqid, f.fuseFilename, off)
 		
 		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", f.fuseFilename), nil)
 		if err != nil {
@@ -121,7 +137,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
 		
-		clnt := &http.Client{}
+		clnt := &http.Client{ }
 		resp, err := clnt.Do(req)
 		if err != nil {
 			return nil, fuse.EPERM
@@ -153,6 +169,8 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		
 		bytesRead += didRead
 	}
+	
+	fmt.Printf("<%08X> read %d --> +%d bytes\n", rqid, f.offset, bytesRead)
 	
 	f.offset += int64(bytesRead)
 	rr := fuse.ReadResultData(dst[0:bytesRead])
