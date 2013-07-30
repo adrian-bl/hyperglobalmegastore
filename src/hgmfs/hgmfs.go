@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sync"
 	"syscall"
 	"time"
@@ -198,9 +199,11 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 
 	// No open http connection: Create a new request
 	if f.resp == nil {
-		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d\n", rqid, off)
+		esc := url.QueryEscape(f.fuseFilename)
 
-		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", f.fuseFilename), nil)
+		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, esc)
+
+		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", esc), nil)
 		if err != nil {
 			return nil, fuse.EIO
 		}
