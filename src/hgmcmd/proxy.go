@@ -60,11 +60,16 @@ func LaunchProxy(bindAddr string, bindPort string) {
 }
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
-	/* passing this directly to the FS should be ok:
-	 * the http package won't accept paths to ../../, but a basic cleanup wouldn't hurt (FIXME) */
-	aliasPath := fmt.Sprintf("./_aliases/%s", r.RequestURI)
-
-	fmt.Printf("+ GET %s\n", aliasPath)
+	
+	unEscaped, err := url.QueryUnescape(r.RequestURI)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, "Failed to parse URI")
+		return
+	}
+	
+	aliasPath := fmt.Sprintf("./_aliases/%s", unEscaped)
+	fmt.Printf("+ GET <%s>\n", aliasPath)
 
 	fi, err := os.Stat(aliasPath)
 	if err != nil {
