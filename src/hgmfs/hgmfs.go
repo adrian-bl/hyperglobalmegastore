@@ -1,100 +1,51 @@
 package hgmfs
 
 import (
-	"os"
-	"io/ioutil"
 	"encoding/json"
 	"fmt"
-	"log"
-	"time"
-	"net/http"
-	"syscall"
-	"sync"
-	"math/rand"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/hanwen/go-fuse/fuse/pathfs"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"net/http"
+	"sync"
+	"syscall"
+	"time"
 )
 
 /* fixme: duplicate code */
 type JsonMeta struct {
-	Location [][]string
-	Key string
-	Created int64
+	Location    [][]string
+	Key         string
+	Created     int64
 	ContentSize uint64
 }
 
+/* Sturct for our pathfs based fuse filesystem */
 type HgmFs struct {
 	pathfs.FileSystem
-	rqx int64
 }
 
+/* Structure of an open file */
 type hgmFile struct {
-	sync.Mutex
-	fuseFilename string
-	jsonMetafile string
-	jsonMetadata JsonMeta
-	offset int64
-	resp *http.Response
-	readQueue map[int32]int64
+	sync.Mutex                   // Mutex to lock the struct
+	fuseFilename string          // Filename as requested by fuse caller
+	jsonMetafile string          // Path to local (matching) json metadata
+	jsonMetadata JsonMeta        // Parsed JSON data
+	offset       int64           // Current offset of 'resp'
+	resp         *http.Response  // An HTTP connection, may be nil
+	readQueue    map[int32]int64 // Array with queued read requests, used to minimize 'seeks-over-http'
 }
 
-
-
-func NewHgmFile(fname string) nodefs.File {
-	jmetafile := getLocalPath(fname)
-	jmetadata, err := getJsonMeta(jmetafile)
-	if err != nil {
-		return nil
-	}
-	
-	hgmf := hgmFile{fuseFilename: fname, jsonMetafile: jmetafile, jsonMetadata: jmetadata}
-	hgmf.readQueue = make(map[int32]int64)
-	return &hgmf
+func getLocalPath(fusepath string) string {
+	return fmt.Sprintf("./_aliases/%s", fusepath)
 }
 
-func (f *hgmFile) Truncate(size uint64) fuse.Status {
-	return fuse.EPERM
-}
-func (f *hgmFile) Allocate(off uint64, sz uint64, mode uint32) fuse.Status {
-	return fuse.EPERM
-}
-func (f *hgmFile) Chmod(mode uint32) fuse.Status {
-	return fuse.EPERM
-}
-func (f *hgmFile) Chown(guid uint32, gid uint32) fuse.Status {
-	return fuse.EPERM
-}
-func (f *hgmFile) Flush() fuse.Status {
-	return fuse.OK
-}
-func (f *hgmFile) Fsync(flags int) fuse.Status {
-	return fuse.OK
-}
-func (f *hgmFile) InnerFile() nodefs.File {
-	return nil
-}
-func (f *hgmFile) Release() {
-	if f.resp != nil {
-		f.resp.Body.Close()
-	}
-}
-func (f *hgmFile) SetInode(n *nodefs.Inode) {
-}
-func (f *hgmFile) Write(content []byte, off int64) (uint32, fuse.Status) {
-	return 0, fuse.EPERM
-}
-
-func (f *hgmFile) String() string {
-	return fmt.Sprintf("FooBar!")
-}
-
-func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
-	return fuse.EPERM
-}
-
-
-func (f *hgmFile) nextInQueue(want int64) (bool) {
+// Returns TRUE if the offset specified by 'want'
+// is the best match in our queue
+func (f *hgmFile) nextInQueue(want int64) bool {
 
 	if want < f.offset {
 		return false
@@ -109,44 +60,121 @@ func (f *hgmFile) nextInQueue(want int64) (bool) {
 	return true
 }
 
+// Unmarshal JSON file at localPath
+func getJsonMeta(localPath string) (JsonMeta, error) {
+	var jsm JsonMeta
+	content, err := ioutil.ReadFile(localPath)
+	if err != nil {
+		return jsm, err
+	}
+	err = json.Unmarshal([]byte(content), &jsm)
+	return jsm, err
+}
+
+// Unimplemented dummy functions
+func (f *hgmFile) Truncate(size uint64) fuse.Status {
+	return fuse.EROFS
+}
+func (f *hgmFile) Allocate(off uint64, sz uint64, mode uint32) fuse.Status {
+	return fuse.EROFS
+}
+func (f *hgmFile) Chmod(mode uint32) fuse.Status {
+	return fuse.EROFS
+}
+func (f *hgmFile) Chown(guid uint32, gid uint32) fuse.Status {
+	return fuse.EROFS
+}
+func (f *hgmFile) Flush() fuse.Status {
+	return fuse.OK
+}
+func (f *hgmFile) Fsync(flags int) fuse.Status {
+	return fuse.OK
+}
+func (f *hgmFile) InnerFile() nodefs.File {
+	return nil
+}
+func (f *hgmFile) SetInode(n *nodefs.Inode) {
+}
+func (f *hgmFile) Write(content []byte, off int64) (uint32, fuse.Status) {
+	return 0, fuse.EROFS
+}
+func (f *hgmFile) String() string {
+	return fmt.Sprintf("FooBar!")
+}
+func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
+	return fuse.EROFS
+}
+
+// Open VFS call: Attempts to parse
+// the json-metadata and retuns a struct to hgmFile on success
+func NewHgmFile(fname string) (nodefs.File, fuse.Status) {
+	jmetafile := getLocalPath(fname)
+	jmetadata, err := getJsonMeta(jmetafile)
+	if err != nil {
+		return nil, fuse.EIO
+	}
+
+	hgmf := hgmFile{fuseFilename: fname, jsonMetafile: jmetafile, jsonMetadata: jmetadata}
+	hgmf.readQueue = make(map[int32]int64)
+	return &hgmf, fuse.OK
+}
+
+// Open callback, returns a new HgmFile
+func (self *HgmFs) Open(fname string, flags uint32, ctx *fuse.Context) (fuseFile nodefs.File, status fuse.Status) {
+	return NewHgmFile(fname)
+}
+
+// Close VFS call
+// Will terminate the http connection if we had one open
+func (f *hgmFile) Release() {
+	if f.resp != nil {
+		f.resp.Body.Close()
+	}
+}
+
+// VFS Read call: Reads len(dst) bytes at offset off
 func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
-	/* Generate a random id, aids printf() debugging :-) */
+	/* Generate a random id, aids printf() debugging, fixme: should be unique */
 	rqid := rand.Int31()
-	
+
+	// Inject or request into the queue
 	f.Lock()
 	f.readQueue[rqid] = off
 	f.Unlock()
-	
+
+	// This request will wait in the queue until....
+	// -> The HTTP-Client offset is at the correct position, OR
+	// -> We waited 3 rounds and are still the best match, OR
+	// -> We waited 5 rounds and are the ONLY request, OR
+	// -> We got stuck and break out after 10 wait-rounds
 	retry := 0
-	for loop := true ; loop ; {
+	for loop := true; loop; {
 		f.Lock()
-//		fmt.Printf("<%08X> want offset %d, connection is at %d, waiting\n", rqid, off, f.offset)
-		
-		if (f.offset == off) || (len(f.readQueue) == 1 && retry > 5) || retry > 2 && f.nextInQueue(off) || (retry > 10) {
-//			fmt.Printf("<%08X> BREAKOUT: rqlen=%d, retry=%d, got=%d, want=%d, niQ=%s\n", rqid, len(f.readQueue), retry, f.offset, off, f.nextInQueue(off))
+
+		if (f.offset == off) || retry > 2 && f.nextInQueue(off) || (len(f.readQueue) == 1 && retry > 5) || (retry > 10) {
 			loop = false
 			defer f.Unlock()
 		} else {
 			f.Unlock()
 			retry++
-			time.Sleep(0.02*1e9)
+			time.Sleep(0.02 * 1e9)
 		}
 	}
-	
-//	fmt.Printf("<%08X> starting actual read request\n", rqid)
-	
-	
+
+	// Our open HTTP connection is at the wrong offset.
+	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
 	if off != f.offset && f.resp != nil {
 		mustSeek := off - f.offset
-		
-		if mustSeek > 0 && mustSeek < 1024*1024*3 {
+		if mustSeek > 0 && mustSeek < 1024*1024*3 { // fixme: 3MB hardcoded: This should take piece boundaries into account (?)
 			fmt.Printf("<%08X> Could do a quick seek by dropping %d bytes\n", rqid, mustSeek)
-			for ; mustSeek != 0 ; {
+
+			// Throw away mustSeek bytes
+			for mustSeek != 0 {
 				fmt.Printf("<%08X> QuickFWD: %d\n", rqid, mustSeek)
 				tmpBuf := make([]byte, mustSeek)
 				didRead, err := f.resp.Body.Read(tmpBuf)
 				if err != nil {
-					return nil, fuse.EPERM
+					return nil, fuse.EIO
 				}
 				mustSeek -= int64(didRead)
 				f.offset += int64(didRead)
@@ -158,31 +186,32 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 			f.offset = 0
 		}
 	}
-	
+
+	// No open http connection: Create a new request
 	if f.resp == nil {
 		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d\n", rqid, off)
 
 		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", f.fuseFilename), nil)
 		if err != nil {
-			return nil, fuse.EPERM
+			return nil, fuse.EIO
 		}
 
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
 		hclient := &http.Client{}
 		resp, err := hclient.Do(req)
 		if err != nil {
-			return nil, fuse.EPERM
+			return nil, fuse.EIO
 		}
 
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d\n", resp.StatusCode)
 			resp.Body.Close()
-			return nil, fuse.EPERM
+			return nil, fuse.EIO
 		}
 		f.offset = off
 		f.resp = resp
 	}
-	
+
 	bytesRead := 0
 	mustRead := len(dst)
 	for bytesRead != mustRead {
@@ -192,100 +221,82 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		if err != nil && didRead == 0 {
 			break
 		}
-		
-		for i:=0;i<didRead;i++ {
+		/* Fixme: How can we copy without confusing fuse?! */
+		for i := 0; i < didRead; i++ {
 			dst[bytesRead+i] = tmpBuf[i]
 		}
-		
+
 		bytesRead += didRead
 	}
-	
+
 	f.offset += int64(bytesRead)
-	rr := fuse.ReadResultData(dst[0:bytesRead])
-	
 	delete(f.readQueue, rqid)
-	
+	rr := fuse.ReadResultData(dst[0:bytesRead])
 	return rr, fuse.OK
 }
 
-func (f *hgmFile) GetAttr(out *fuse.Attr) fuse.Status {
+// Returns the filesystem attributes for given file using
+// the data (inode, permissions, etc) from the json file
+func (f *hgmFile) GetAttr(attr *fuse.Attr) fuse.Status {
 	st := syscall.Stat_t{}
 	err := syscall.Stat(f.jsonMetafile, &st)
 	if err != nil {
-		return fuse.EPERM
+		return fuse.EIO
 	}
-	out.FromStat(&st)
-	out.Size = f.jsonMetadata.ContentSize
+	attr.FromStat(&st)
+	attr.Size = f.jsonMetadata.ContentSize
 	return fuse.OK
 }
 
-func getJsonMeta(localPath string) (JsonMeta, error){
-	var jsm JsonMeta
-	
-	content, err := ioutil.ReadFile(localPath)
-	if err != nil {
-		return jsm, err
-	}
-	
-	err = json.Unmarshal([]byte(content), &jsm)
-	return jsm, err
-}
-
-
-
+// Returns the attributes for a non-open file (including directories)
 func (self *HgmFs) GetAttr(fname string, ctx *fuse.Context) (*fuse.Attr, fuse.Status) {
 	jsonPath := getLocalPath(fname)
-	xdb("GetAttr->"+jsonPath)
-	
-	fi, err := os.Stat(jsonPath)
+	st := syscall.Stat_t{}
+	err := syscall.Stat(jsonPath, &st)
 	if err != nil {
-		return nil, fuse.ENOENT
+		return nil, fuse.EIO
 	}
-	if fi.IsDir() {
-		return &fuse.Attr{Mode: fuse.S_IFDIR|0755}, fuse.OK
-	} else {
-		jsonMeta, _ := getJsonMeta(jsonPath) /* fixme: error handling */
-		return &fuse.Attr{Mode: fuse.S_IFREG | 0644, Size: jsonMeta.ContentSize}, fuse.OK
+
+	attr := &fuse.Attr{}
+	attr.FromStat(&st)
+
+	if (attr.Mode & fuse.S_IFDIR) == 0 {
+		// This is a file: need to parse json in order to get the filesize
+		jsonMeta, _ := getJsonMeta(jsonPath) /* fsize will be 0 on error, that's ok with us */
+		attr.Size = jsonMeta.ContentSize
 	}
+
+	return attr, fuse.OK
 }
 
-
+// Read all directory entries for fname
 func (self *HgmFs) OpenDir(fname string, ctx *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
 	path := getLocalPath(fname)
-	xdb("OpenDir->"+path)
-	
 	dirList, err := ioutil.ReadDir(path)
 
 	if err == nil {
 		fuseDirs := make([]fuse.DirEntry, 0, len(dirList))
 		for _, fi := range dirList {
-			fuseDirs = append(fuseDirs, fuse.DirEntry{Name: fi.Name(), Mode: fuse.S_IFDIR|0755}) /* fixme mode */
+			dirent := fuse.DirEntry{Name: fi.Name(), Mode: 0}
+			ea, ee := self.GetAttr(fmt.Sprintf("%s/%s", fname, dirent.Name), ctx)
+			if ee == fuse.OK {
+				dirent.Mode = ea.Mode
+			}
+			fuseDirs = append(fuseDirs, dirent)
 		}
 		return fuseDirs, fuse.OK
 	}
-	return nil, fuse.ENOENT
-}
-
-func (self *HgmFs) Open(fname string, flags uint32, ctx *fuse.Context) (fuseFile nodefs.File, status fuse.Status) {
-	xdb("Open->"+fname)
-	return NewHgmFile(fname), fuse.OK
-}
-
-func getLocalPath(fusepath string) (string) {
-	return fmt.Sprintf("./_aliases/%s", fusepath)
+	return nil, fuse.EIO
 }
 
 func MountFilesystem(dst string) {
-	xdb("Mounting filesystem at "+dst)
+	fmt.Printf("Mounting new hgmfs filesystem to %s ...", dst)
 	nfs := pathfs.NewPathNodeFs(&HgmFs{FileSystem: pathfs.NewDefaultFileSystem()}, nil)
 	server, _, err := nodefs.MountFileSystem(dst, nfs, nil)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Mount failed: %v\n", err))
+		log.Fatal(fmt.Sprintf(" Mount failed: %v\n", err))
 	}
+
+	fmt.Printf("done, ready for IO\n")
 	server.Serve()
-}
-
-
-func xdb(msg string) {
-	fmt.Printf(msg+"\n")
 }
