@@ -95,6 +95,9 @@ func (f *hgmFile) InnerFile() nodefs.File {
 }
 func (f *hgmFile) SetInode(n *nodefs.Inode) {
 }
+func (f *hgmFile) Unlink(name string, context *fuse.Context) (code fuse.Status) {
+	return fuse.EROFS
+}
 func (f *hgmFile) Write(content []byte, off int64) (uint32, fuse.Status) {
 	return 0, fuse.EROFS
 }
@@ -103,6 +106,12 @@ func (f *hgmFile) String() string {
 }
 func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
 	return fuse.EROFS
+}
+
+func (f *hgmFile) StatFS(name string) (*fuse.StatfsOut) {
+	sFs := fuse.StatfsOut{Blocks:12345, Bfree: 12345, Bavail: 12345, Files: 0, Ffree: 0, Bsize: 4096, NameLen: 255, Frsize: 3, Padding: 0}
+	fmt.Printf("> statfs %s\n", name)
+	return &sFs
 }
 
 // Open VFS call: Attempts to parse
@@ -204,7 +213,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
-			fmt.Printf("<%08X> FATAL: Wrong status code: %d\n", resp.StatusCode)
+			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, f.fuseFilename)
 			resp.Body.Close()
 			return nil, fuse.EIO
 		}
@@ -241,7 +250,7 @@ func (f *hgmFile) GetAttr(attr *fuse.Attr) fuse.Status {
 	st := syscall.Stat_t{}
 	err := syscall.Stat(f.jsonMetafile, &st)
 	if err != nil {
-		return fuse.EIO
+		return fuse.EIO /* open file vanished?! */
 	}
 	attr.FromStat(&st)
 	attr.Size = f.jsonMetadata.ContentSize
@@ -254,7 +263,7 @@ func (self *HgmFs) GetAttr(fname string, ctx *fuse.Context) (*fuse.Attr, fuse.St
 	st := syscall.Stat_t{}
 	err := syscall.Stat(jsonPath, &st)
 	if err != nil {
-		return nil, fuse.EIO
+		return nil, fuse.ENOENT
 	}
 
 	attr := &fuse.Attr{}
@@ -296,7 +305,6 @@ func MountFilesystem(dst string) {
 	if err != nil {
 		log.Fatal(fmt.Sprintf(" Mount failed: %v\n", err))
 	}
-
 	fmt.Printf("done, ready for IO\n")
 	server.Serve()
 }
