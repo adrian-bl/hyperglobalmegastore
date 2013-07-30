@@ -36,16 +36,12 @@ type hgmFile struct {
 	jsonMetadata JsonMeta
 	offset int64
 	resp *http.Response
-	readQueue struct {
-		sync.Mutex
-		nwait int
-	}
+	readQueue map[int32]int64
 }
 
 
 
 func NewHgmFile(fname string) nodefs.File {
-	fmt.Printf(">> newhgm file: %s\n", fname)
 	jmetafile := getLocalPath(fname)
 	jmetadata, err := getJsonMeta(jmetafile)
 	if err != nil {
@@ -53,6 +49,7 @@ func NewHgmFile(fname string) nodefs.File {
 	}
 	
 	hgmf := hgmFile{fuseFilename: fname, jsonMetafile: jmetafile, jsonMetadata: jmetadata}
+	hgmf.readQueue = make(map[int32]int64)
 	return &hgmf
 }
 
@@ -78,7 +75,6 @@ func (f *hgmFile) InnerFile() nodefs.File {
 	return nil
 }
 func (f *hgmFile) Release() {
-	fmt.Printf("[close] fname=%s, resp=%s\n", f.fuseFilename, f.resp)
 	if f.resp != nil {
 		f.resp.Body.Close()
 	}
@@ -96,56 +92,90 @@ func (f *hgmFile) String() string {
 func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
 	return fuse.EPERM
 }
+
+
+func (f *hgmFile) nextInQueue(want int64) (bool) {
+
+	if want < f.offset {
+		return false
+	}
+
+	for _, v := range f.readQueue {
+		if v >= f.offset && v < want {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
+	/* Generate a random id, aids printf() debugging :-) */
 	rqid := rand.Int31()
 	
-	f.readQueue.Lock()
-	otherWaiting := f.readQueue.nwait
-	f.readQueue.nwait++
-	f.readQueue.Unlock()
+	f.Lock()
+	f.readQueue[rqid] = off
+	f.Unlock()
 	
-	fmt.Printf("<%08X> READ fname=%s, offset=%d, myoff=%d, waiters=%d\n", rqid, f.fuseFilename, off, f.offset, otherWaiting)
-	for i:=0;otherWaiting > 0 && i<5;i++ {
-		if off != f.offset && f.readQueue.nwait > 1 {
-			fmt.Printf("<%08X> want %d, have %d -> wait (%d)\n", rqid, off, f.offset, f.readQueue.nwait)
-			time.Sleep(0.02*1e9)
+	retry := 0
+	for loop := true ; loop ; {
+		f.Lock()
+//		fmt.Printf("<%08X> want offset %d, connection is at %d, waiting\n", rqid, off, f.offset)
+		
+		if (f.offset == off) || (len(f.readQueue) == 1 && retry > 5) || retry > 2 && f.nextInQueue(off) || (retry > 10) {
+//			fmt.Printf("<%08X> BREAKOUT: rqlen=%d, retry=%d, got=%d, want=%d, niQ=%s\n", rqid, len(f.readQueue), retry, f.offset, off, f.nextInQueue(off))
+			loop = false
+			defer f.Unlock()
 		} else {
-			break
+			f.Unlock()
+			retry++
+			time.Sleep(0.02*1e9)
 		}
 	}
 	
-	f.readQueue.Lock()
-	f.readQueue.nwait--
-	f.readQueue.Unlock()
+//	fmt.Printf("<%08X> starting actual read request\n", rqid)
 	
-	f.Lock()
-	defer f.Unlock()
 	
 	if off != f.offset && f.resp != nil {
-		fmt.Printf("<%08X> Closing existing http request to fulfill request for offset %d\n", rqid, off)
-		f.offset = 0
-		f.resp.Body.Close()
-		f.resp = nil
+		mustSeek := off - f.offset
+		
+		if mustSeek > 0 && mustSeek < 1024*1024*3 {
+			fmt.Printf("<%08X> Could do a quick seek by dropping %d bytes\n", rqid, mustSeek)
+			for ; mustSeek != 0 ; {
+				fmt.Printf("<%08X> QuickFWD: %d\n", rqid, mustSeek)
+				tmpBuf := make([]byte, mustSeek)
+				didRead, err := f.resp.Body.Read(tmpBuf)
+				if err != nil {
+					return nil, fuse.EPERM
+				}
+				mustSeek -= int64(didRead)
+				f.offset += int64(didRead)
+			}
+		} else {
+			fmt.Printf("<%08X> !!!!!!!!!!! Closing existing http request: want=%d, got=%d\n", rqid, off, f.offset)
+			f.resp.Body.Close()
+			f.resp = nil
+			f.offset = 0
+		}
 	}
 	
 	if f.resp == nil {
-		fmt.Printf("<%08X> first request for %s, starting http request at offset %d\n", rqid, f.fuseFilename, off)
-		
+		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d\n", rqid, off)
+
 		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", f.fuseFilename), nil)
 		if err != nil {
 			return nil, fuse.EPERM
 		}
+
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
-		
-		clnt := &http.Client{ }
-		resp, err := clnt.Do(req)
+		hclient := &http.Client{}
+		resp, err := hclient.Do(req)
 		if err != nil {
 			return nil, fuse.EPERM
 		}
-		
+
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
-			fmt.Printf("!! wrong code: %d\n", resp.StatusCode)
-			f.resp = nil
+			fmt.Printf("<%08X> FATAL: Wrong status code: %d\n", resp.StatusCode)
 			resp.Body.Close()
 			return nil, fuse.EPERM
 		}
@@ -159,7 +189,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		canRead := mustRead - bytesRead
 		tmpBuf := make([]byte, canRead)
 		didRead, err := f.resp.Body.Read(tmpBuf)
-		if err != nil && didRead == 0{
+		if err != nil && didRead == 0 {
 			break
 		}
 		
@@ -170,10 +200,11 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		bytesRead += didRead
 	}
 	
-	fmt.Printf("<%08X> read %d --> +%d bytes\n", rqid, f.offset, bytesRead)
-	
 	f.offset += int64(bytesRead)
 	rr := fuse.ReadResultData(dst[0:bytesRead])
+	
+	delete(f.readQueue, rqid)
+	
 	return rr, fuse.OK
 }
 
