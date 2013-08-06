@@ -11,7 +11,7 @@ $| = 1;
 
 my $getopts = {};
 
-GetOptions($getopts, "prefix|p=s") or exit 1;
+GetOptions($getopts, "prefix|p=s", "skip-existing", "--rawpath") or exit 1;
 
 my $keysize      = 256;
 my $max_blobsize = 1024*1024*16;
@@ -37,13 +37,24 @@ foreach my $source_file (@ARGV) {
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
 	my $metaout = ( split("/",$source_file) )[-1];
-	   $metaout =~ tr/a-zA-Z0-9\.-/_/c;
-	   $metaout = "$metadir/$metaout";
+	
+	if($getopts->{rawpath}) {
+		# The default is to use just the filename
+		# --rawpath changes this: we are using the full name as read from the commandline
+		$metaout = "$metadir/$source_file";
+		my @dirparts = split('/', $metaout);
+		pop(@dirparts);
+		system("mkdir", "-p", join("/", @dirparts));
+	}
 	my $json = getJSON($metaout);
 	
 	print "file=$source_file, meta=$metaout ($fsize bytes)...\n   ";
 	
 	if(exists($json->{Key})) {
+		if($getopts->{"skip-existing"}) {
+			print "# skipping existing file: $metaout\n";
+			next;
+		}
 		# inherit existing key. fixme: should check keylength and abort if keysize is wrong
 		$key = pack("H*",$json->{Key});
 		print "# metadata exists, adding new copy with same encryption key\n";
@@ -54,15 +65,15 @@ foreach my $source_file (@ARGV) {
 	}
 	
 	
-	system("rm x?? 2>/dev/null");
+	system("rm _split.$$.???? 2>/dev/null");
 	if($fsize > $max_blobsize) {
-		system("split", "-b", $max_blobsize, $source_file);
-		@source_parts = (sort({$a<=>$b} glob("x??")));
+		system("split", "-b", $max_blobsize, "-a", 4, $source_file, "_split.$$.");
+		@source_parts = (sort({$a<=>$b} glob("_split.$$.????")));
 		print "# file split into parts: @source_parts\n";
 	}
 	else {
-		@source_parts = ('xaa');
-		symlink($source_file, 'xaa') or die "symlink() failed: $!\n";
+		@source_parts = ("_split.$$.aaaa");
+		symlink($source_file, $source_parts[0]) or die "symlink() failed: $!\n";
 	}
 	
 	foreach my $this_part (@source_parts) {
@@ -87,7 +98,15 @@ foreach my $source_file (@ARGV) {
 		
 		# The png file is now ready at $pngout: time to upload it to flickr
 		print " upload";
-		my $photo_html = flickrUpload($pngout);
+		my $photo_html;
+		for(;;) {
+			eval {
+				$photo_html = flickrUpload($pngout);
+			};
+			last unless $@;
+			print "# OUCH! Flickr failed with $@ on $pngout, will retry in 10 seconds\n";
+			sleep(10);
+		}
 		print " verify";
 		my $orig_photo = getFullFlickrUrl($photo_html);
 		push(@remote_parts, $orig_photo);
@@ -136,12 +155,13 @@ sub flickrUpload {
 sub getFullFlickrUrl {
 	my($fhtml) = @_;
 	
-	for(0..20) {
+	foreach my $wait (1..60) {
 		my $wget_hack = `wget -q -O - $fhtml`;
 		if($wget_hack =~ /<img src="([^"]+_o\.png)">/gm) {
 			return $1;
 		}
-		sleep(5);
+		print "# ..flickr still working, waiting $wait second(s)\n";
+		sleep($wait);
 	}
 	return undef;
 }
