@@ -22,6 +22,7 @@ type JsonMeta struct {
 	Key         string
 	Created     int64
 	ContentSize uint64
+	BlobSize    int64
 }
 
 /* Sturct for our pathfs based fuse filesystem */
@@ -171,16 +172,22 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 	}
 
+	fmt.Printf("<%08X> retry=%d, want_off=%d\n", rqid, retry, off)
+
 	// Our open HTTP connection is at the wrong offset.
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
 	if off != f.offset && f.resp != nil {
 		mustSeek := off - f.offset
-		if mustSeek > 0 && mustSeek < 1024*1024*3 { // fixme: 3MB hardcoded: This should take piece boundaries into account (?)
+		wantBlobIdx := int64(off / f.jsonMetadata.BlobSize)
+		haveBlobIdx := int64(f.offset / f.jsonMetadata.BlobSize)
+		
+		fmt.Printf("<%08X> wantIDX=%d (off=%d), gotIDX=%d (off=%d)\n", rqid, wantBlobIdx, off, haveBlobIdx, f.offset);
+		
+		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
 			fmt.Printf("<%08X> Could do a quick seek by dropping %d bytes\n", rqid, mustSeek)
 
 			// Throw away mustSeek bytes
 			for mustSeek != 0 {
-				fmt.Printf("<%08X> QuickFWD: %d\n", rqid, mustSeek)
 				tmpBuf := make([]byte, mustSeek)
 				didRead, err := f.resp.Body.Read(tmpBuf)
 				if err != nil {
@@ -189,6 +196,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 				mustSeek -= int64(didRead)
 				f.offset += int64(didRead)
 			}
+			fmt.Printf("<%08X> QuickFWD finished\n", rqid)
 		} else {
 			fmt.Printf("<%08X> !!!!!!!!!!! Closing existing http request: want=%d, got=%d\n", rqid, off, f.offset)
 			f.resp.Body.Close()

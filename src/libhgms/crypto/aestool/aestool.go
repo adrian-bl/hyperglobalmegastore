@@ -93,7 +93,7 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 			self.streamlen -= canSkipNow
 
 			if wFrom == wTo {
-				fmt.Printf("Skipping zero-sized write\n")
+				// fmt.Printf("Skipping zero-sized write\n")
 				continue
 			}
 		}
