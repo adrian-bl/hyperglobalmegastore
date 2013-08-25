@@ -21,8 +21,9 @@ unless (-d $metadir) {
 	system("mkdir", "-p", $metadir) and die "mkdir -p $metadir failed: $!\n";
 }
 
-foreach my $source_file (@ARGV) {
-	
+while(<STDIN>) {
+	my $source_file = $_;
+	chomp($source_file);	
 	unless (-f $source_file) {
 		print "skipping '$source_file'\n";
 		next;
@@ -81,7 +82,7 @@ foreach my $source_file (@ARGV) {
 		
 		# first step is to encrypt the file using hgcmd:
 		print "[$this_part] encrypting";
-		system("./hgmcmd", "encrypt", unpack("H*", $key), unpack("H*", $iv), $this_part, $encout);
+		system("hgmcmd", "encrypt", unpack("H*", $key), unpack("H*", $iv), $this_part, $encout);
 		unless(open(ENC_FH, "<", $encout)) {
 			warn "could not open $encout: $!, skipping $this_part\n";
 			next;
@@ -145,7 +146,7 @@ sub flickrUpload {
 	$ua->env_proxy();
 	
 	my $photoid = $ua->upload(photo=>$to_upload, auth_token=>$cf->{auth_token});
-	my $photohtml = 'http://www.flickr.com/photos/98707671@N05/'.int($photoid)."/sizes/o/in/photostream/";
+	my $photohtml = $cf->{url_prefix}.'/'.int($photoid)."/sizes/o/in/photostream/";
 	return $photohtml;
 }
 
@@ -160,7 +161,7 @@ sub getFullFlickrUrl {
 		if($wget_hack =~ /<img src="([^"]+_o\.png)">/gm) {
 			return $1;
 		}
-		print "# ..flickr still working, waiting $wait second(s)\n";
+		print "# ..flickr still working, waiting $wait second(s) (wget of $fhtml failed)\n";
 		sleep($wait);
 	}
 	return undef;

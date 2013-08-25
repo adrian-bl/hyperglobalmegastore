@@ -21,7 +21,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"io"
-	"fmt"
 )
 
 type AesTool struct {
@@ -52,7 +51,6 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 }
 
 func (self *AesTool) SetSkipBytes(sb *int64) {
-	fmt.Printf("SKIP: %d\n", *sb)
 	self.skipbytes = sb
 }
 

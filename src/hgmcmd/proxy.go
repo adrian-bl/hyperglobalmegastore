@@ -69,7 +69,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscaped)
-	fmt.Printf("+ GET <%s>\n", aliasPath)
+	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
 
 	fi, err := os.Stat(aliasPath)
 	if err != nil {
