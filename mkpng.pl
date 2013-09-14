@@ -58,7 +58,7 @@ while(<STDIN>) {
 		}
 		# inherit existing key. fixme: should check keylength and abort if keysize is wrong
 		$key = pack("H*",$json->{Key});
-		print "# metadata exists, adding new copy with same encryption key\n";
+		print "# metadata exists, adding new copy with same encryption key and blobsize ($json->{BlobSize})\n";
 	} else {
 		# no existing info: create a prototype
 		$json = { ContentSize=>int($fsize), BlobSize=>int($max_blobsize), Created=>time(), Location=> [], Key=>unpack("H*",$key) };
@@ -67,8 +67,8 @@ while(<STDIN>) {
 	
 	
 	system("rm _split.$$.???? 2>/dev/null");
-	if($fsize > $max_blobsize) {
-		system("split", "-b", $max_blobsize, "-a", 4, $source_file, "_split.$$.");
+	if($fsize > $json->{BlobSize}) {
+		system("split", "-b", $json->{BlobSize}, "-a", 4, $source_file, "_split.$$.");
 		@source_parts = (sort({$a<=>$b} glob("_split.$$.????")));
 		print "# file split into parts: @source_parts\n";
 	}
