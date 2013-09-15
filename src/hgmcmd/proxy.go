@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"io/ioutil"
 	"os"
@@ -152,14 +153,15 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
 	
 	for fidx := range dirList {
 		fi := dirList[fidx]
-		saveName := url.QueryEscape(fi.Name())
+		linkName := url.QueryEscape(fi.Name())
+		htmlName := html.EscapeString(fi.Name())
 		desc := fmt.Sprintf("%s/stock_attach.png", imgBase)
 		if fi.IsDir() {
 			desc = fmt.Sprintf("%s/stock_open.png", imgBase)
-			saveName = fmt.Sprintf("%s/", saveName)
+			linkName = fmt.Sprintf("%s/", linkName)
 		}
 
-		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, saveName, saveName))
+		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, linkName, htmlName))
 	}
 	
 	io.WriteString(w, "</hr><br><br><font size=-2><i>Powered by HyperGlobalMegaStore</i></font></body></html>\n")
