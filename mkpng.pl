@@ -61,8 +61,9 @@ while(<STDIN>) {
 		print "# metadata exists, adding new copy with same encryption key and blobsize ($json->{BlobSize})\n";
 	} else {
 		# no existing info: create a prototype
-		$json = { ContentSize=>int($fsize), BlobSize=>int($max_blobsize), Created=>time(), Location=> [], Key=>unpack("H*",$key) };
-		print "# creating new metadata at $metaout\n";
+		$json = { ContentSize=>int($fsize), BlobSize=>int(($max_blobsize/2) + rand($max_blobsize/2)), Created=>time(), Location=> [], Key=>unpack("H*",$key) };
+		my $ui_bsm = sprintf("%.2f", ($json->{BlobSize}/1024/1024));
+		print "# creating new metadata at $metaout (blobsize=${ui_bsm}MB)\n";
 	}
 	
 	
