@@ -62,14 +62,14 @@ func LaunchProxy(bindAddr string, bindPort string) {
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 	
-	unEscaped, err := url.QueryUnescape(r.RequestURI)
+	unEscapedRqUri, err := url.QueryUnescape(r.RequestURI)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "Failed to parse URI")
 		return
 	}
 	
-	aliasPath := fmt.Sprintf("./_aliases/%s", unEscaped)
+	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
 	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
 
 	fi, err := os.Stat(aliasPath)
@@ -146,9 +146,7 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
 	dirList, _ := ioutil.ReadDir(fspath)
 	
 	imgBase := "http://tiny.cdn.eqmx.net/icons/tango/16x16/status/"
-	
-	io.WriteString(w, "<html><head><body><h3>Index of /neverland</h3><hr>\n")
-	
+	io.WriteString(w, "<html><head><meta name='viewport' content='width=device-width'></head><body>\n");
 	io.WriteString(w, fmt.Sprintf("<img src=\"%s../actions/back.png\"> <a href=../>back</a><br>\n", imgBase))
 	
 	for fidx := range dirList {
