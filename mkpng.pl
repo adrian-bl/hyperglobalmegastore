@@ -24,7 +24,7 @@ unless (-d $metadir) {
 while(<STDIN>) {
 	my $source_file = $_;
 	chomp($source_file);	
-	unless (-f $source_file) {
+	if( !(-f $source_file) || (-s $source_file) == 0 ) {
 		print "skipping '$source_file'\n";
 		next;
 	}
@@ -105,12 +105,13 @@ while(<STDIN>) {
 			eval {
 				$photo_html = flickrUpload($pngout);
 			};
+			print ">> $@ >> $photo_html\n";
 			last unless $@;
-			print "# OUCH! Flickr failed with $@ on $pngout, will retry in 10 seconds\n";
+			print "# OUCH! Flickr failed with '$@' on $pngout, will retry in 10 seconds\n";
 			sleep(10);
 		}
 		print " verify";
-		my $orig_photo = getFullFlickrUrl($photo_html);
+		my $orig_photo = getFullFlickrUrl($photo_html) or die "giving up!\n";
 		push(@remote_parts, $orig_photo);
 		print "\n";
 		unlink($pngout);
@@ -158,9 +159,9 @@ sub getFullFlickrUrl {
 	my($fhtml) = @_;
 	
 	foreach my $wait (1..60) {
-		my $wget_hack = `wget -q -O - $fhtml`;
-		if($wget_hack =~ /<img src="([^"]+_o\.png)">/gm) {
-			return $1;
+		my $wget_hack = `wget --no-check-certificate -q -O - $fhtml`;
+		if($wget_hack =~ /<img src="https?:\/\/([^"]+_o\.png)">/gm) {
+			return "http://".$1;
 		}
 		print "# ..flickr still working, waiting $wait second(s) (wget of $fhtml failed)\n";
 		sleep($wait);
