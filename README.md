@@ -49,7 +49,7 @@ Mounting the filesystem via FUSE is also possible. Just run
 Note that you need to keep the proxy running while the filesystem is mounted.
 
 
-How to upload pictures
+How to upload 'pictures'
 ----------------------------------------------
 
 Creater your flickr account and install and configure Flickr::Upload
