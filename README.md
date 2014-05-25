@@ -40,6 +40,14 @@ You can then launch the proxy via
 
 The proxy will use ./_aliases as its json-storage directory (fixme: this will change)
 
+Mounting the filesystem via FUSE is also possible. Just run
+
+```bash
+./hgmcmd mount /mnt/hgms
+```
+
+Note that you need to keep the proxy running while the filesystem is mounted.
+
 
 How to upload pictures
 ----------------------------------------------

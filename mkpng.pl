@@ -24,7 +24,7 @@ unless (-d $metadir) {
 while(<STDIN>) {
 	my $source_file = $_;
 	chomp($source_file);	
-	if( !(-f $source_file) || (-s $source_file) == 0 ) {
+	if( !(-f $source_file) || (-s $source_file) < 4096 ) {
 		print "skipping '$source_file'\n";
 		next;
 	}
