@@ -147,7 +147,7 @@ sub flickrUpload {
 	$ua->agent( "flickr_upload/1.0" );
 	$ua->env_proxy();
 	
-	my $photoid = $ua->upload(photo=>$to_upload, auth_token=>$cf->{auth_token});
+	my $photoid = $ua->upload(uri=>'https://up.flickr.com/services/upload/', photo=>$to_upload, auth_token=>$cf->{auth_token});
 	my $photohtml = $cf->{url_prefix}.'/'.int($photoid)."/sizes/o/in/photostream/";
 	return $photohtml;
 }
