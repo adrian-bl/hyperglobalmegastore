@@ -39,6 +39,9 @@ import (
 var backendClient *http.Client
 var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$");
 
+/* Prefix to use for request handler */
+var wwwPrefix = "";
+
 type RqMeta struct {
 	Location [][]string /* Raw HTTP URL            */
 	Key      string     /* 7-bit ascii hex string  */
@@ -48,15 +51,16 @@ type RqMeta struct {
 }
 
 
-func LaunchProxy(bindAddr string, bindPort string) {
+func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
 	backendClient = &http.Client{Transport: tr}
+	wwwPrefix = rqPrefix;
 
 	/* Fixme: IPv6 and basic validation (port 0 should be refused */
 	bindString := fmt.Sprintf("%s:%s", bindAddr, bindPort);
-	fmt.Printf("Proxy accepting connections at http://%s\n", bindString)
+	fmt.Printf("Proxy accepting connections at http://%s/%s\n", bindString, wwwPrefix)
 
-	http.HandleFunc("/", handleAlias)
+	http.HandleFunc(fmt.Sprintf("/%s", wwwPrefix), handleAlias)
 	http.ListenAndServe(bindString, nil)
 }
 
@@ -68,6 +72,8 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Failed to parse URI")
 		return
 	}
+	
+	unEscapedRqUri = unEscapedRqUri[len(wwwPrefix):];
 	
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
 	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
