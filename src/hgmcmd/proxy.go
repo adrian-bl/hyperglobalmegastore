@@ -152,7 +152,8 @@ func writeDirectoryList(w http.ResponseWriter, fspath string) {
 	dirList, _ := ioutil.ReadDir(fspath)
 	
 	imgBase := "http://tiny.cdn.eqmx.net/icons/tango/16x16/status/"
-	io.WriteString(w, "<html><head><meta name='viewport' content='width=device-width'></head><body>\n");
+	io.WriteString(w, "<html><head><meta charset='UTF-8'><meta name='HandheldFriendly' content='True'>");
+	io.WriteString(w, "<meta name='MobileOptimized' content='320'></head><body>\n");
 	io.WriteString(w, fmt.Sprintf("<img src=\"%s../actions/back.png\"> <a href=../>back</a><br>\n", imgBase))
 	
 	for fidx := range dirList {
