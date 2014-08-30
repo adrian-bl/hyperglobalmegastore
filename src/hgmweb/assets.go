@@ -16,6 +16,7 @@
  */
 
 package hgmweb
+
 import (
 	"fmt"
 	"io"
@@ -30,13 +31,13 @@ type assetContent struct {
 func serveAsset(w http.ResponseWriter, assetName string) {
 
 	httpStatus := http.StatusOK
-	asset := emptyText();
+	asset := emptyText()
 
 	switch assetName {
-		case "basic.css":
-			asset = baseCSS()
-		default:
-			httpStatus = http.StatusNotFound
+	case "basic.css":
+		asset = baseCSS()
+	default:
+		httpStatus = http.StatusNotFound
 	}
 
 	w.Header().Set("Content-Type", asset.ContentType)
@@ -55,9 +56,9 @@ func getAssetPath(assetName string, config *proxyParams) string {
  * Returns an empty string
  */
 func emptyText() *assetContent {
-	return &assetContent {
+	return &assetContent{
 		ContentType: "text/plain",
-		Blob: "",
+		Blob:        "",
 	}
 }
 
@@ -65,7 +66,7 @@ func emptyText() *assetContent {
  * Returns our basic CSS
  */
 func baseCSS() *assetContent {
-	return &assetContent {
+	return &assetContent{
 		ContentType: "text/css",
 		Blob: `/* hgmcss */
 		@import url(http://weloveiconfonts.com/api/?family=entypo);

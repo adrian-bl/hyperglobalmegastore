@@ -24,7 +24,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"regexp"
 )
+
+var reIsMovie = regexp.MustCompile("(?i)\\.(mkv|avi|mp4|m4v|mpeg)$")
+var reIsMusic = regexp.MustCompile("(?i)\\.(mp3|ogg|flac|m4a|wav)$")
+var reIsPicture = regexp.MustCompile("(?i)\\.(jpeg|jpg|gif|png|bmp)$")
 
 func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams) {
 	w.Header().Set("Content-Type", "text/html")
@@ -44,15 +49,23 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 		fi := dirList[fidx]
 		linkName := url.QueryEscape(fi.Name())
 		htmlName := html.EscapeString(fi.Name())
-		linkIcon := "floppy"
+		linkIcon := "docs"
 		if fi.IsDir() {
 			linkIcon = "folder"
 			linkName = fmt.Sprintf("%s/", linkName)
+		} else if reIsMovie.MatchString(htmlName) {
+			linkIcon = "video"
+		} else if reIsMusic.MatchString(htmlName) {
+			linkIcon = "note-beamed"
+		} else if reIsPicture.MatchString(htmlName) {
+			linkIcon = "picture"
 		}
 		io.WriteString(w, fmt.Sprintf("<tr onclick=\"document.location='%s';\"><td><span class='entypo-%s' /></td><td>%s</td></tr>", linkName, linkIcon, htmlName))
 	}
 	/* end filelist table */
 	io.WriteString(w, `</tbody></table>`)
+
+	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity' /></i>`)
 
 	io.WriteString(w, `</body></html>`)
 
