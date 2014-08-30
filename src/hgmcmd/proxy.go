@@ -37,10 +37,16 @@ import (
 
 /* Custom HTTP Client, setup done in main() */
 var backendClient *http.Client
+var proxyConfig proxyParams
 var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$");
 
-/* Prefix to use for request handler */
-var wwwPrefix = "";
+/* Proxy configuration */
+type proxyParams struct {
+	BindAddr string   /* Bind to this addr */
+	BindPort string   /* Bind to this port */
+	BindTo   string   /* Assembled bind string */
+	Webroot  string   /* prefix www root */
+}
 
 type RqMeta struct {
 	Location [][]string /* Raw HTTP URL            */
@@ -52,16 +58,22 @@ type RqMeta struct {
 
 
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
+	proxyConfig.BindAddr = bindAddr
+	proxyConfig.BindPort = bindPort
+	proxyConfig.BindTo   = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
+	proxyConfig.Webroot  = rqPrefix
+	startServer()
+}
+
+
+func startServer() {
 	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
 	backendClient = &http.Client{Transport: tr}
-	wwwPrefix = rqPrefix;
 
-	/* Fixme: IPv6 and basic validation (port 0 should be refused */
-	bindString := fmt.Sprintf("%s:%s", bindAddr, bindPort);
-	fmt.Printf("Proxy accepting connections at http://%s/%s\n", bindString, wwwPrefix)
+	fmt.Printf("Proxy accepting connections at http://%s/%s\n", proxyConfig.BindTo, proxyConfig.Webroot)
 
-	http.HandleFunc(fmt.Sprintf("/%s", wwwPrefix), handleAlias)
-	http.ListenAndServe(bindString, nil)
+	http.HandleFunc(fmt.Sprintf("/%s", proxyConfig.Webroot), handleAlias)
+	http.ListenAndServe(proxyConfig.BindTo, nil)
 }
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +85,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	unEscapedRqUri = unEscapedRqUri[len(wwwPrefix):];
+	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):];
 	
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
 	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
