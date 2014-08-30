@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Adrian Ulrich <adrian@blinkenlights.ch>
+ * Copyright (C) 2013-2014 Adrian Ulrich <adrian@blinkenlights.ch>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package main
+package hgmweb
 
 import (
 	"encoding/hex"
@@ -46,6 +46,7 @@ type proxyParams struct {
 	BindPort string   /* Bind to this port */
 	BindTo   string   /* Assembled bind string */
 	Webroot  string   /* prefix www root */
+	Assets   string   /* prefix of static files */
 }
 
 type RqMeta struct {
@@ -62,6 +63,7 @@ func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	proxyConfig.BindPort = bindPort
 	proxyConfig.BindTo   = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
 	proxyConfig.Webroot  = rqPrefix
+	proxyConfig.Assets   = ".assets/"
 	startServer()
 }
 
@@ -73,8 +75,16 @@ func startServer() {
 	fmt.Printf("Proxy accepting connections at http://%s/%s\n", proxyConfig.BindTo, proxyConfig.Webroot)
 
 	http.HandleFunc(fmt.Sprintf("/%s", proxyConfig.Webroot), handleAlias)
+	http.HandleFunc(fmt.Sprintf("/%s%s", proxyConfig.Webroot, proxyConfig.Assets), handleAsset)
+
 	http.ListenAndServe(proxyConfig.BindTo, nil)
 }
+
+
+func handleAsset(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("HERE")
+}
+
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 	
