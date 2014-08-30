@@ -81,7 +81,16 @@ func startServer() {
 
 
 func handleAsset(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("HERE")
+	assetName, err := url.QueryUnescape(r.RequestURI)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, "Failed to parse URI")
+		return
+	}
+
+	// remove prefix
+	assetName = assetName[len(proxyConfig.Webroot)+len(proxyConfig.Assets)+1:] // +1 -> remove leading slash
+	serveAsset(w, assetName);
 }
 
 
@@ -123,7 +132,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusForbidden)
 				io.WriteString(w, "Directory listing disabled\n")
 			} else {
-				serveDirectoryList(w, aliasPath)
+				serveDirectoryList(w, aliasPath, proxyConfig)
 			}
 			return
 		} else {
