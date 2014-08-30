@@ -26,7 +26,7 @@ import (
 )
 
 
-func serveDirectoryList(w http.ResponseWriter, fspath string, pconf proxyParams) {
+func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	dirList, _ := ioutil.ReadDir(fspath)

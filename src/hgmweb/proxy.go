@@ -36,7 +36,7 @@ import (
 
 /* Custom HTTP Client, setup done in main() */
 var backendClient *http.Client
-var proxyConfig proxyParams
+var proxyConfig *proxyParams
 var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$");
 
 /* Proxy configuration */
@@ -58,6 +58,7 @@ type RqMeta struct {
 
 
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
+	proxyConfig = new(proxyParams)
 	proxyConfig.BindAddr = bindAddr
 	proxyConfig.BindPort = bindPort
 	proxyConfig.BindTo   = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
