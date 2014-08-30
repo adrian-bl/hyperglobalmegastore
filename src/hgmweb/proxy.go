@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"io/ioutil"
 	"os"
@@ -124,7 +123,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusForbidden)
 				io.WriteString(w, "Directory listing disabled\n")
 			} else {
-				writeDirectoryList(w, aliasPath)
+				serveDirectoryList(w, aliasPath)
 			}
 			return
 		} else {
@@ -168,32 +167,6 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	serveFullURI(w, r, js)
 }
 
-func writeDirectoryList(w http.ResponseWriter, fspath string) {
-	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	dirList, _ := ioutil.ReadDir(fspath)
-	
-	imgBase := "http://tiny.cdn.eqmx.net/icons/tango/16x16/status/"
-	io.WriteString(w, "<html><head><meta charset='UTF-8'><meta name='HandheldFriendly' content='True'>");
-	io.WriteString(w, "<meta name='MobileOptimized' content='320'></head><body>\n");
-	io.WriteString(w, fmt.Sprintf("<img src=\"%s../actions/back.png\"> <a href=../>back</a><br>\n", imgBase))
-	
-	for fidx := range dirList {
-		fi := dirList[fidx]
-		linkName := url.QueryEscape(fi.Name())
-		htmlName := html.EscapeString(fi.Name())
-		desc := fmt.Sprintf("%s/stock_attach.png", imgBase)
-		if fi.IsDir() {
-			desc = fmt.Sprintf("%s/stock_open.png", imgBase)
-			linkName = fmt.Sprintf("%s/", linkName)
-		}
-
-		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, linkName, htmlName))
-	}
-	
-	io.WriteString(w, "</hr><br><br><font size=-2><i>Powered by HyperGlobalMegaStore</i></font></body></html>\n")
-	
-}
 
 /*
  * Handle request for given targetURI
