@@ -16,6 +16,7 @@
  */
 
 package hgmweb
+
 import (
 	"fmt"
 	"html"
@@ -25,31 +26,34 @@ import (
 	"net/url"
 )
 
-
 func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	dirList, _ := ioutil.ReadDir(fspath)
-	fmt.Printf(getAssetPath("basic.css", pconf))
-	imgBase := "http://tiny.cdn.eqmx.net/icons/tango/16x16/status/"
-	io.WriteString(w, "<html><head><meta charset='UTF-8'><meta name='HandheldFriendly' content='True'>");
-	io.WriteString(w, "<meta name='MobileOptimized' content='320'></head><body>\n");
-	io.WriteString(w, fmt.Sprintf("<img src=\"%s../actions/back.png\"> <a href=../>back</a><br>\n", imgBase))
-	
+
+	io.WriteString(w, `<html><head><meta charset="UTF-8"><meta name="HandheldFriendly" content="True"><meta name='MobileOptimized' content='320'>`)
+	io.WriteString(w, fmt.Sprintf("<link rel=\"stylesheet\" type=\"text/css\" href=\"%s\">", getAssetPath("basic.css", pconf)))
+	io.WriteString(w, `</head><body>`)
+
+	/* begin filelist table */
+	io.WriteString(w, `<table class="pure-table-horizontal pure-table pure-table-striped">`)
+	io.WriteString(w, `<thead><tr onclick="document.location='../';"><th class="highlight"><span class='entypo-left' /></th><th class="highlight"><i>Back</i></th></tr></thead>`)
+
+	io.WriteString(w, `<tbody>`)
 	for fidx := range dirList {
 		fi := dirList[fidx]
 		linkName := url.QueryEscape(fi.Name())
 		htmlName := html.EscapeString(fi.Name())
-		desc := fmt.Sprintf("%s/stock_attach.png", imgBase)
+		linkIcon := "floppy"
 		if fi.IsDir() {
-			desc = fmt.Sprintf("%s/stock_open.png", imgBase)
+			linkIcon = "folder"
 			linkName = fmt.Sprintf("%s/", linkName)
 		}
-
-		io.WriteString(w, fmt.Sprintf("<img src=\"%s\"> <a href=\"%s\">%s</a><br>\n", desc, linkName, htmlName))
+		io.WriteString(w, fmt.Sprintf("<tr onclick=\"document.location='%s';\"><td><span class='entypo-%s' /></td><td>%s</td></tr>", linkName, linkIcon, htmlName))
 	}
-	
-	io.WriteString(w, "</hr><br><br><font size=-2><i>Powered by HyperGlobalMegaStore</i></font></body></html>\n")
-	
-}
+	/* end filelist table */
+	io.WriteString(w, `</tbody></table>`)
 
+	io.WriteString(w, `</body></html>`)
+
+}
