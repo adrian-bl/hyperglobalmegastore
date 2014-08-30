@@ -36,13 +36,13 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 	w.WriteHeader(http.StatusOK)
 	dirList, _ := ioutil.ReadDir(fspath)
 
-	io.WriteString(w, `<html><head><meta charset="UTF-8"><meta name="HandheldFriendly" content="True"><meta name='MobileOptimized' content='320'>`)
+	io.WriteString(w, `<!doctype html><html lang="en"><head><title>HGMS</title><meta charset="UTF-8"><meta name="HandheldFriendly" content="True"><meta name='MobileOptimized' content='320'>`)
 	io.WriteString(w, fmt.Sprintf("<link rel=\"stylesheet\" type=\"text/css\" href=\"%s\">", getAssetPath("basic.css", pconf)))
 	io.WriteString(w, `</head><body>`)
 
 	/* begin filelist table */
 	io.WriteString(w, `<table class="pure-table-horizontal pure-table pure-table-striped">`)
-	io.WriteString(w, `<thead><tr onclick="document.location='../';"><th class="highlight"><span class='entypo-left' /></th><th class="highlight"><i>Back</i></th></tr></thead>`)
+	io.WriteString(w, `<thead><tr onclick="document.location='../';"><th class="highlight"><span class='entypo-left'></span></th><th class="highlight"><i>Back</i></th></tr></thead>`)
 
 	io.WriteString(w, `<tbody>`)
 	for fidx := range dirList {
@@ -60,12 +60,12 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 		} else if reIsPicture.MatchString(htmlName) {
 			linkIcon = "picture"
 		}
-		io.WriteString(w, fmt.Sprintf("<tr onclick=\"document.location='%s';\"><td><span class='entypo-%s' /></td><td>%s</td></tr>", linkName, linkIcon, htmlName))
+		io.WriteString(w, fmt.Sprintf("<tr onclick=\"document.location='%s';\"><td><span class='entypo-%s'></span></td><td>%s</td></tr>", linkName, linkIcon, htmlName))
 	}
 	/* end filelist table */
 	io.WriteString(w, `</tbody></table>`)
 
-	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity' /></i>`)
+	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity'></span></i>`)
 
 	io.WriteString(w, `</body></html>`)
 
