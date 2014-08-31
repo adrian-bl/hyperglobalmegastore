@@ -38,35 +38,46 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 
 	io.WriteString(w, `<!doctype html><html lang="en"><head><title>HGMS</title><meta charset="UTF-8"><meta name="HandheldFriendly" content="True"><meta name='MobileOptimized' content='320'>`)
 	io.WriteString(w, fmt.Sprintf("<link rel=\"stylesheet\" type=\"text/css\" href=\"%s\">", getAssetPath("basic.css", pconf)))
-	io.WriteString(w, `</head><body>`)
+	io.WriteString(w, `</head><body><div class="hgms-wrapper">`)
 
-	/* begin filelist table */
-	io.WriteString(w, `<table class="pure-table-horizontal pure-table pure-table-striped">`)
-	io.WriteString(w, `<thead><tr onclick="document.location='../';"><th class="highlight"><span class='entypo-left'></span></th><th class="highlight"><i>Back</i></th></tr></thead>`)
+	io.WriteString(w, getCell("entypo-left", "../", "<i>Back</i>", "cb"));
 
-	io.WriteString(w, `<tbody>`)
+	i := 0
 	for fidx := range dirList {
 		fi := dirList[fidx]
 		linkName := url.QueryEscape(fi.Name())
 		htmlName := html.EscapeString(fi.Name())
-		linkIcon := "docs"
+		linkIcon := "entypo-docs"
 		if fi.IsDir() {
-			linkIcon = "folder"
+			linkIcon = "entypo-folder"
 			linkName = fmt.Sprintf("%s/", linkName)
 		} else if reIsMovie.MatchString(htmlName) {
-			linkIcon = "video"
+			linkIcon = "entypo-video"
 		} else if reIsMusic.MatchString(htmlName) {
-			linkIcon = "note-beamed"
+			linkIcon = "entypo-note-beamed"
 		} else if reIsPicture.MatchString(htmlName) {
-			linkIcon = "picture"
+			linkIcon = "entypo-picture"
 		}
-		io.WriteString(w, fmt.Sprintf("<tr onclick=\"document.location='%s';\"><td><span class='entypo-%s'></span></td><td>%s</td></tr>", linkName, linkIcon, htmlName))
+		i++;
+		colorClass := "fc"
+		if i % 2 == 0 { colorClass = "f0" }
+		io.WriteString(w, getCell(linkIcon, linkName, htmlName, colorClass))
 	}
-	/* end filelist table */
-	io.WriteString(w, `</tbody></table>`)
 
 	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity'></span></i>`)
 
-	io.WriteString(w, `</body></html>`)
+	io.WriteString(w, `</div></body></html>`)
 
 }
+
+
+
+func getCell(iconName string, linkHref string, htmlName string, colorClass string) string {
+
+	return fmt.Sprintf("<a href=\"%s\"><div class=\"pure-g g-color-%s\">"+
+	"<div class=\"pure-u-1-24\"><div class=\"g-padding\"><span class=\"%s\"></span></div></div>"+
+	"<div class=\"pure-u-1-24\"></div>"+
+	"<div class=\"pure-u-22-24\"><div class=\"g-padding\">%s</div></div>"+
+	"</div></a>", linkHref, colorClass, iconName, htmlName);
+}
+
