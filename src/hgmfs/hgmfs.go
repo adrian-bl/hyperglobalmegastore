@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+var hgmConfig *HgmConfig
+
 /* fixme: duplicate code */
 type JsonMeta struct {
 	Location    [][]string
@@ -39,6 +41,11 @@ type hgmFile struct {
 	offset       int64           // Current offset of 'resp'
 	resp         *http.Response  // An HTTP connection, may be nil
 	readQueue    map[int32]int64 // Array with queued read requests, used to minimize 'seeks-over-http'
+}
+
+type HgmConfig struct {
+	mountpoint string
+	proxyUrl string
 }
 
 func getLocalPath(fusepath string) string {
@@ -211,7 +218,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 
 		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, esc)
 
-		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost:8080/%s", esc), nil)
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", hgmConfig.proxyUrl, esc), nil)
 		if err != nil {
 			return nil, fuse.EIO
 		}
@@ -309,12 +316,18 @@ func (self *HgmFs) OpenDir(fname string, ctx *fuse.Context) ([]fuse.DirEntry, fu
 	return nil, fuse.EIO
 }
 
-func MountFilesystem(dst string, proxy string) {
+func MountFilesystem(mountpoint string, proxy string) {
 	nfs := pathfs.NewPathNodeFs(&HgmFs{FileSystem: pathfs.NewDefaultFileSystem()}, nil)
-	server, _, err := nodefs.MountRoot(dst, nfs.Root(), nil)
+	server, _, err := nodefs.MountRoot(mountpoint, nfs.Root(), nil)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Mount failed: %v\n", err))
 	}
-	fmt.Printf("Filesystem mounted at '%s', using '%s' as upstream source\n", dst, proxy)
+	fmt.Printf("Filesystem mounted at '%s', using '%s' as upstream source\n", mountpoint, proxy)
+
+	hgmConfig = new (HgmConfig)
+
+	hgmConfig.mountpoint = mountpoint
+	hgmConfig.proxyUrl = proxy
+
 	server.Serve()
 }
