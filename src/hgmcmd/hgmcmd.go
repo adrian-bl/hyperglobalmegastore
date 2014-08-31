@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Adrian Ulrich <adrian@blinkenlights.ch>
+ * Copyright (C) 2013-2014 Adrian Ulrich <adrian@blinkenlights.ch>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,10 +43,27 @@ func main() {
 			webrootPrefix = os.Args[4]
 		}
 		hgmweb.LaunchProxy(os.Args[2], os.Args[3], webrootPrefix)
-	} else if subModule == "mount" && len(os.Args) == 3 {
-		hgmfs.MountFilesystem(os.Args[2])
+	} else if subModule == "mount" && len(os.Args) >= 3 {
+		proxyUrl := "http://localhost:8080/";
+		if len(os.Args) > 3 {
+			proxyUrl = os.Args[3]
+		}
+		hgmfs.MountFilesystem(os.Args[2], proxyUrl)
 	} else {
-		fmt.Printf("Usage: %s encrypt pass IV in out|decrypt pass IV in out|proxy bindaddr port [prefix/]\n", os.Args[0])
+
+fmt.Printf("Usage: %s proxy | mount | encrypt | decrypt\n\n", os.Args[0])
+fmt.Printf(`proxy binaddr bindport [prefix]
+	bindaddr    : IPv4 address to bind to, eg: 127.0.0.1
+	bindport    : Port to use, eg: 8080
+	prefix      : Webroot prefix, eg: secret-location/
+
+`)
+
+fmt.Printf(`mount target [proxy-url]
+	target      : Mountpoint directory
+	proxy-url   : URL of the launched hgms proxy, defaults to http://localhost:8080/
+
+`)
 	}
 
 }

@@ -309,13 +309,12 @@ func (self *HgmFs) OpenDir(fname string, ctx *fuse.Context) ([]fuse.DirEntry, fu
 	return nil, fuse.EIO
 }
 
-func MountFilesystem(dst string) {
-	fmt.Printf("Mounting new hgmfs filesystem to %s ...", dst)
+func MountFilesystem(dst string, proxy string) {
 	nfs := pathfs.NewPathNodeFs(&HgmFs{FileSystem: pathfs.NewDefaultFileSystem()}, nil)
 	server, _, err := nodefs.MountRoot(dst, nfs.Root(), nil)
 	if err != nil {
-		log.Fatal(fmt.Sprintf(" Mount failed: %v\n", err))
+		log.Fatal(fmt.Sprintf("Mount failed: %v\n", err))
 	}
-	fmt.Printf("done, ready for IO\n")
+	fmt.Printf("Filesystem mounted at '%s', using '%s' as upstream source\n", dst, proxy)
 	server.Serve()
 }
