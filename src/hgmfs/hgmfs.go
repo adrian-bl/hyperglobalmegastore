@@ -248,10 +248,13 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		if err != nil && didRead == 0 {
 			break
 		}
-		/* Fixme: How can we copy without confusing fuse?! */
-		for i := 0; i < didRead; i++ {
-			dst[bytesRead+i] = tmpBuf[i]
-		}
+
+		/* tmpBuf may be larger than didRead: we do not care because
+		 * -> it will never overshoot dst (calculated by canRead)
+		 * -> we are clamping it later to bytesRead, so we are not
+		 *    going to return junk to the caller
+		 */
+		copy(dst[bytesRead:], tmpBuf)
 
 		bytesRead += didRead
 	}
