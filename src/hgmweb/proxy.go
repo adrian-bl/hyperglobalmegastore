@@ -53,6 +53,7 @@ type RqMeta struct {
 	Key      string     /* 7-bit ascii hex string  */
 	Created int64       /* file-creation timestamp */
 	BlobSize int64
+	RangeRequest bool
 	RangeFrom int64
 }
 
@@ -167,8 +168,10 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 	rangeMatches := reHttpRange.FindStringSubmatch(r.Header.Get("Range"))
 	if len(rangeMatches) == 2 {/* [0]=text, [1]=range_bytes */
 		js.RangeFrom, _ = strconv.ParseInt(rangeMatches[1], 10, 64)
+		js.RangeRequest = true
 	} else {
 		js.RangeFrom = 0
+		js.RangeRequest = false
 	}
 	
 	fmt.Printf("HTTP: Range-Request for offset %d (raw=%s)\n", js.RangeFrom, r.Header.Get("Range"))
@@ -236,7 +239,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 				headersSent = true
 				dst.Header().Set("Last-Modified", time.Unix(rqm.Created, 0).Format(http.TimeFormat))
 				dst.Header().Set("Accept-Range", "bytes")
-				if rqm.RangeFrom == 0 {
+				if rqm.RangeRequest == false {
 					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 					dst.WriteHeader(http.StatusOK)
 				} else {
