@@ -171,7 +171,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		js.RangeFrom = 0
 	}
 	
-	fmt.Printf(">>>>>> %d >>> %s\n", js.RangeFrom, r.Header.Get("Range"))
+	fmt.Printf("HTTP: Range-Request for offset %d (raw=%s)\n", js.RangeFrom, r.Header.Get("Range"))
 	
 	/* We got all required info: serve HTTP request to client */
 	serveFullURI(w, r, js)
@@ -235,7 +235,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 			if headersSent == false {
 				headersSent = true
 				dst.Header().Set("Last-Modified", time.Unix(rqm.Created, 0).Format(http.TimeFormat))
-				
+				dst.Header().Set("Accept-Range", "bytes")
 				if rqm.RangeFrom == 0 {
 					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 					dst.WriteHeader(http.StatusOK)
