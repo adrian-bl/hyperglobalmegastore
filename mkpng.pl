@@ -11,7 +11,7 @@ $| = 1;
 
 my $getopts = {};
 
-GetOptions($getopts, "prefix|p=s", "skip-existing", "--rawpath") or exit 1;
+GetOptions($getopts, "prefix|p=s", "skip-existing", "dry-run", "rawpath") or exit 1;
 
 my $keysize      = 256;
 my $max_blobsize = 1024*1024*16;
@@ -59,6 +59,8 @@ while(<STDIN>) {
 		# inherit existing key. fixme: should check keylength and abort if keysize is wrong
 		$key = pack("H*",$json->{Key});
 		print "# metadata exists, adding new copy with same encryption key and blobsize ($json->{BlobSize})\n";
+	} elsif($getopts->{"dry-run"}) {
+		print "# ignoring '$metaout' in dry-run mode\n";
 	} else {
 		# no existing info: create a prototype
 		$json = { ContentSize=>int($fsize), BlobSize=>int(($max_blobsize/2) + rand($max_blobsize/2)), Created=>time(), Location=> [], Key=>unpack("H*",$key) };
