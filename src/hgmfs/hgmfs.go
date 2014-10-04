@@ -224,7 +224,8 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
-		hclient := &http.Client{}
+		tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
+		hclient := &http.Client{Transport: tr}
 		resp, err := hclient.Do(req)
 		if err != nil {
 			return nil, fuse.EIO
