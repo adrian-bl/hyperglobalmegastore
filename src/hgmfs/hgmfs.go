@@ -6,6 +6,7 @@ import (
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/hanwen/go-fuse/fuse/pathfs"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -50,6 +51,19 @@ type HgmConfig struct {
 
 func getLocalPath(fusepath string) string {
 	return fmt.Sprintf("./_aliases/%s", fusepath)
+}
+
+// Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
+func discardBody(toSkip int64, reader io.ReadCloser) (error) {
+	for toSkip != 0 {
+		tmpBuf := make([]byte, toSkip);
+		didSkip, err := reader.Read(tmpBuf);
+		if err != nil {
+			return err;
+		}
+		toSkip -= int64(didSkip);
+	}
+	return nil;
 }
 
 // Returns TRUE if the offset specified by 'want'
@@ -150,6 +164,7 @@ func (f *hgmFile) Release() {
 	}
 }
 
+
 // VFS Read call: Reads len(dst) bytes at offset off
 func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 	/* Generate a random id, aids printf() debugging, fixme: should be unique */
@@ -179,8 +194,6 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 	}
 
-	fmt.Printf("<%08X> retry=%d, want_off=%d\n", rqid, retry, off)
-
 	// Our open HTTP connection is at the wrong offset.
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
 	if off != f.offset && f.resp != nil {
@@ -188,24 +201,18 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		wantBlobIdx := int64(off / f.jsonMetadata.BlobSize)
 		haveBlobIdx := int64(f.offset / f.jsonMetadata.BlobSize)
 		
-		fmt.Printf("<%08X> wantIDX=%d (off=%d), gotIDX=%d (off=%d)\n", rqid, wantBlobIdx, off, haveBlobIdx, f.offset);
-		
 		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
 			fmt.Printf("<%08X> Could do a quick seek by dropping %d bytes\n", rqid, mustSeek)
 
 			// Throw away mustSeek bytes
-			for mustSeek != 0 {
-				tmpBuf := make([]byte, mustSeek)
-				didRead, err := f.resp.Body.Read(tmpBuf)
-				if err != nil {
-					return nil, fuse.EIO
-				}
-				mustSeek -= int64(didRead)
-				f.offset += int64(didRead)
+			err := discardBody(mustSeek, f.resp.Body);
+			if err != nil {
+				return nil, fuse.EIO;
 			}
-			fmt.Printf("<%08X> QuickFWD finished\n", rqid)
+			f.offset += mustSeek;
+			fmt.Printf("<%08X> now at offset %d\n", rqid, f.offset);
+
 		} else {
-			fmt.Printf("<%08X> !!!!!!!!!!! Closing existing http request: want=%d, got=%d\n", rqid, off, f.offset)
 			f.resp.Body.Close()
 			f.resp = nil
 			f.offset = 0
@@ -224,10 +231,11 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		}
 
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
-		tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
+		tr := &http.Transport{ResponseHeaderTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
 		hclient := &http.Client{Transport: tr}
 		resp, err := hclient.Do(req)
 		if err != nil {
+		fmt.Printf("Got err: %",err);
 			return nil, fuse.EIO
 		}
 
@@ -235,6 +243,12 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, f.fuseFilename)
 			resp.Body.Close()
 			return nil, fuse.EIO
+		} else if resp.StatusCode == 200 && off != 0 {
+			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off);
+			err = discardBody(off, resp.Body);
+			if err != nil {
+				return nil, fuse.EIO;
+			}
 		}
 		f.offset = off
 		f.resp = resp
