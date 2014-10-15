@@ -17,6 +17,9 @@ import (
 	"time"
 )
 
+/* buffers are at most 5MB */
+const maxBufSize = 5242880
+
 var hgmConfig *HgmConfig
 
 /* fixme: duplicate code */
@@ -56,14 +59,18 @@ func getLocalPath(fusepath string) string {
 // Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
 func discardBody(toSkip int64, reader io.ReadCloser) (error) {
 	for toSkip != 0 {
-		tmpBuf := make([]byte, toSkip);
-		didSkip, err := reader.Read(tmpBuf);
-		if err != nil {
-			return err;
+		tmpSize := toSkip
+		if tmpSize > maxBufSize {
+			tmpSize = maxBufSize
 		}
-		toSkip -= int64(didSkip);
+		tmpBuf := make([]byte, maxBufSize)
+		didSkip, err := reader.Read(tmpBuf)
+		if err != nil {
+			return err
+		}
+		toSkip -= int64(didSkip)
 	}
-	return nil;
+	return nil
 }
 
 // Returns TRUE if the offset specified by 'want'
