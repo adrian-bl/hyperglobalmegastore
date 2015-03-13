@@ -47,6 +47,8 @@ func serveDirectoryList(w http.ResponseWriter, pconf *proxyParams, fspath string
 	io.WriteString(w, getCell("entypo-left", "../", "<i>Back</i>", "cb"))
 
 	i := 0
+	mediaFiles := 0
+
 	for fidx := range dirList {
 		fi := dirList[fidx]
 		linkURL := &url.URL{Path: fi.Name()}
@@ -58,8 +60,10 @@ func serveDirectoryList(w http.ResponseWriter, pconf *proxyParams, fspath string
 			linkName = fmt.Sprintf("%s/", linkName)
 		} else if reIsMovie.MatchString(htmlName) {
 			linkIcon = "entypo-video"
+			mediaFiles++
 		} else if reIsMusic.MatchString(htmlName) {
 			linkIcon = "entypo-note-beamed"
+			mediaFiles++
 		} else if reIsPicture.MatchString(htmlName) {
 			linkIcon = "entypo-picture"
 		}
@@ -69,6 +73,10 @@ func serveDirectoryList(w http.ResponseWriter, pconf *proxyParams, fspath string
 			colorClass = "f0"
 		}
 		io.WriteString(w, getCell(linkIcon, linkName, htmlName, colorClass))
+	}
+
+	if mediaFiles > 1 {
+		io.WriteString(w, getCell("entypo-download", "?format=m3u", "<b>Download as playlist</b>", "FX"))
 	}
 
 	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity'></span></i>`)

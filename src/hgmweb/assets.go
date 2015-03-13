@@ -78,6 +78,7 @@ func baseCSS() *assetContent {
 		.hgms-wrapper .g-color-cb { background-color: #cbcbcb }
 		.hgms-wrapper .g-color-f2 { background-color: #f2f2f2 }
 		.hgms-wrapper .g-color-f0 { background-color: #f0f0f0 }
+		.hgms-wrapper .g-color-FX { background-color: #000; color: #fefefe }
 /*!
 Pure v0.5.0
 Copyright 2014 Yahoo! Inc. All rights reserved.
