@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Adrian Ulrich <adrian@blinkenlights.ch>
+ * Copyright (C) 2013-2015 Adrian Ulrich <adrian@blinkenlights.ch>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,17 +94,11 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 
-	unEscapedRqUri, err := url.QueryUnescape(r.RequestURI)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, "Failed to parse URI")
-		return
-	}
-
+	unEscapedRqUri := r.URL.Path
 	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):]
 
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
-	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
+	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.URL.Path)
 
 	fi, err := os.Stat(aliasPath)
 	if err != nil {
