@@ -57,6 +57,11 @@ type RqMeta struct {
 	RangeFrom    int64
 }
 
+const (
+	FORMAT_DEFAULT = ""
+	FORMAT_M3U     = "m3u"
+)
+
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	proxyConfig = new(proxyParams)
 	proxyConfig.BindAddr = bindAddr
@@ -94,11 +99,12 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 
+	displayFormat := r.URL.Query().Get("format")
 	unEscapedRqUri := r.URL.Path
 	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):]
 
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
-	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.URL.Path)
+	fmt.Printf("GET=%s, raw=%s, format=%s\n", aliasPath, r.URL.Path, displayFormat)
 
 	fi, err := os.Stat(aliasPath)
 	if err != nil {
@@ -120,11 +126,13 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			/* no index, handle dirlist: */
-			if 1 == 0 {
-				w.WriteHeader(http.StatusForbidden)
-				io.WriteString(w, "Directory listing disabled\n")
-			} else {
+			if displayFormat == FORMAT_DEFAULT {
 				serveDirectoryList(w, aliasPath, proxyConfig)
+			} else if displayFormat == FORMAT_M3U {
+				servePlaylist(w, r, aliasPath)
+			} else {
+				w.WriteHeader(http.StatusNotImplemented)
+				io.WriteString(w, "Unknown format requested\n")
 			}
 			return
 		} else {

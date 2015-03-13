@@ -31,6 +31,10 @@ var reIsMovie = regexp.MustCompile("(?i)\\.(mkv|avi|mp4|m4v|mpeg)$")
 var reIsMusic = regexp.MustCompile("(?i)\\.(mp3|ogg|flac|m4a|wav)$")
 var reIsPicture = regexp.MustCompile("(?i)\\.(jpeg|jpg|gif|png|bmp)$")
 
+/**
+ * @desc Writes an HTML listing of the directory pointed at by fspath to
+ *       the http.ResponseWriter
+ */
 func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
@@ -69,6 +73,27 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 	io.WriteString(w, `<br><i>Powered by HyperGlobalMegaStore <span class='entypo-infinity'></span></i>`)
 
 	io.WriteString(w, `</div></body></html>`)
+}
+
+/**
+ * @desc Assembles a Playlist File containing only of movie and music files
+ *       and writes the result to the passed http.ResponseWriter
+ */
+func servePlaylist(w http.ResponseWriter, r *http.Request, fspath string) {
+	w.Header().Set("Content-Type", "application/x-mpegurl")
+	w.WriteHeader(http.StatusOK)
+	dirList, _ := ioutil.ReadDir(fspath)
+
+	io.WriteString(w, "#EXTM3U\n")
+	for fidx := range dirList {
+		fi := dirList[fidx]
+		name := fi.Name()
+		if fi.IsDir() == false && (reIsMovie.MatchString(name) || reIsMusic.MatchString(name)) {
+			u := &url.URL{Path: fmt.Sprintf("%s%s", r.URL.Path, name)}
+			io.WriteString(w, fmt.Sprintf("\n#EXTINF:0,%s\n", name))
+			io.WriteString(w, fmt.Sprintf("http://%s%s\n", r.Host, u.String()))
+		}
+	}
 
 }
 
