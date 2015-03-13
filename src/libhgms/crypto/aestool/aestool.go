@@ -78,15 +78,15 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 			/* blockBuf = blockBuf[:self.streamlen] */
 			wTo = self.streamlen
 		}
-		
+
 		if *self.skipbytes != 0 {
-/*			fmt.Printf("> should skip a total of %d bytes\n", *self.skipbytes) */
+			/*			fmt.Printf("> should skip a total of %d bytes\n", *self.skipbytes) */
 			canSkipNow := wTo - wFrom
 			if canSkipNow > *self.skipbytes {
 				canSkipNow = *self.skipbytes
 			}
 			wFrom = canSkipNow
-/*			fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo) */
+			/*			fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo) */
 			*self.skipbytes -= canSkipNow
 			self.streamlen -= canSkipNow
 
@@ -95,7 +95,7 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 				continue
 			}
 		}
-		
+
 		nw, ew := dst.Write(blockBuf[wFrom:wTo])
 		self.streamlen -= int64(nw)
 

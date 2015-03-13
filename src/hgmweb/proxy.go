@@ -23,12 +23,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
 	"libhgms/crypto/aestool"
 	"libhgms/flickr/png"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -37,37 +37,35 @@ import (
 /* Custom HTTP Client, setup done in main() */
 var backendClient *http.Client
 var proxyConfig *proxyParams
-var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$");
+var reHttpRange = regexp.MustCompile("^bytes=([0-9]+)-$")
 
 /* Proxy configuration */
 type proxyParams struct {
-	BindAddr string   /* Bind to this addr */
-	BindPort string   /* Bind to this port */
-	BindTo   string   /* Assembled bind string */
-	Webroot  string   /* prefix www root */
-	Assets   string   /* prefix of static files */
+	BindAddr string /* Bind to this addr */
+	BindPort string /* Bind to this port */
+	BindTo   string /* Assembled bind string */
+	Webroot  string /* prefix www root */
+	Assets   string /* prefix of static files */
 }
 
 type RqMeta struct {
-	Location [][]string /* Raw HTTP URL            */
-	Key      string     /* 7-bit ascii hex string  */
-	Created int64       /* file-creation timestamp */
-	BlobSize int64
+	Location     [][]string /* Raw HTTP URL            */
+	Key          string     /* 7-bit ascii hex string  */
+	Created      int64      /* file-creation timestamp */
+	BlobSize     int64
 	RangeRequest bool
-	RangeFrom int64
+	RangeFrom    int64
 }
-
 
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	proxyConfig = new(proxyParams)
 	proxyConfig.BindAddr = bindAddr
 	proxyConfig.BindPort = bindPort
-	proxyConfig.BindTo   = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
-	proxyConfig.Webroot  = rqPrefix
-	proxyConfig.Assets   = ".assets/"
+	proxyConfig.BindTo = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
+	proxyConfig.Webroot = rqPrefix
+	proxyConfig.Assets = ".assets/"
 	startServer()
 }
-
 
 func startServer() {
 	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
@@ -81,7 +79,6 @@ func startServer() {
 	http.ListenAndServe(proxyConfig.BindTo, nil)
 }
 
-
 func handleAsset(w http.ResponseWriter, r *http.Request) {
 	assetName, err := url.QueryUnescape(r.RequestURI)
 	if err != nil {
@@ -92,21 +89,20 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 
 	// remove prefix
 	assetName = assetName[len(proxyConfig.Webroot)+len(proxyConfig.Assets)+1:] // +1 -> remove leading slash
-	serveAsset(w, assetName);
+	serveAsset(w, assetName)
 }
 
-
 func handleAlias(w http.ResponseWriter, r *http.Request) {
-	
+
 	unEscapedRqUri, err := url.QueryUnescape(r.RequestURI)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "Failed to parse URI")
 		return
 	}
-	
-	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):];
-	
+
+	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):]
+
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
 	fmt.Printf("+ GET <%s> (raw: %s)\n", aliasPath, r.RequestURI)
 
@@ -125,7 +121,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		}
 
 		/* check if we have an index.html */
-		idxAliasPath := aliasPath+"/index.html"
+		idxAliasPath := aliasPath + "/index.html"
 		_, err := os.Stat(idxAliasPath)
 
 		if err != nil {
@@ -141,7 +137,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 			aliasPath = idxAliasPath
 		}
 	}
-	
+
 	/* normal file */
 	content, err := ioutil.ReadFile(aliasPath)
 	if err != nil {
@@ -149,7 +145,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Failed to read json file")
 		return
 	}
-	
+
 	var js RqMeta
 	err = json.Unmarshal([]byte(content), &js)
 	if err != nil {
@@ -164,22 +160,21 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Not modified")
 		return
 	}
-	
+
 	rangeMatches := reHttpRange.FindStringSubmatch(r.Header.Get("Range"))
-	if len(rangeMatches) == 2 {/* [0]=text, [1]=range_bytes */
+	if len(rangeMatches) == 2 { /* [0]=text, [1]=range_bytes */
 		js.RangeFrom, _ = strconv.ParseInt(rangeMatches[1], 10, 64)
 		js.RangeRequest = true
 	} else {
 		js.RangeFrom = 0
 		js.RangeRequest = false
 	}
-	
+
 	fmt.Printf("HTTP: Range-Request for offset %d (raw=%s)\n", js.RangeFrom, r.Header.Get("Range"))
-	
+
 	/* We got all required info: serve HTTP request to client */
 	serveFullURI(w, r, js)
 }
-
 
 /*
  * Handle request for given targetURI
@@ -198,15 +193,15 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 	numBlobs := int64(len(locArray[0])) /* Total number of blobs                   */
 	skipBytes := rqm.RangeFrom          /* How many bytes shall we throw away?     */
 
-/* fixme: div-by-zero: should we care? */
-	bIdx := int64( skipBytes / rqm.BlobSize )
+	/* fixme: div-by-zero: should we care? */
+	bIdx := int64(skipBytes / rqm.BlobSize)
 	skipBytes -= bIdx * rqm.BlobSize
 
 	fmt.Printf("# stream has %d location(s) and %d chunks, firstBlob is: %d, skip=%d\n", numCopies, numBlobs, bIdx, skipBytes)
 
-	for ; bIdx<numBlobs; bIdx++ {
+	for ; bIdx < numBlobs; bIdx++ {
 		copyList := rand.Perm(numCopies)
-		fmt.Printf("== serving blob %d/%d\n", bIdx+1, numBlobs);
+		fmt.Printf("== serving blob %d/%d\n", bIdx+1, numBlobs)
 
 		servedCopy := false
 		for _, ci := range copyList {
@@ -243,7 +238,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 					dst.WriteHeader(http.StatusOK)
 				} else {
-					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize - rqm.RangeFrom))
+					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize-rqm.RangeFrom))
 					dst.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rqm.RangeFrom, pngReader.ContentSize-1, pngReader.ContentSize))
 					dst.WriteHeader(http.StatusPartialContent)
 				}

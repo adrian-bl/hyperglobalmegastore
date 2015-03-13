@@ -40,7 +40,7 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 	io.WriteString(w, fmt.Sprintf("<link rel=\"stylesheet\" type=\"text/css\" href=\"%s\">", getAssetPath("basic.css", pconf)))
 	io.WriteString(w, `</head><body><div class="hgms-wrapper">`)
 
-	io.WriteString(w, getCell("entypo-left", "../", "<i>Back</i>", "cb"));
+	io.WriteString(w, getCell("entypo-left", "../", "<i>Back</i>", "cb"))
 
 	i := 0
 	for fidx := range dirList {
@@ -58,9 +58,11 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 		} else if reIsPicture.MatchString(htmlName) {
 			linkIcon = "entypo-picture"
 		}
-		i++;
+		i++
 		colorClass := "fc"
-		if i % 2 == 0 { colorClass = "f0" }
+		if i%2 == 0 {
+			colorClass = "f0"
+		}
 		io.WriteString(w, getCell(linkIcon, linkName, htmlName, colorClass))
 	}
 
@@ -70,14 +72,11 @@ func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams
 
 }
 
-
-
 func getCell(iconName string, linkHref string, htmlName string, colorClass string) string {
 
 	return fmt.Sprintf("<a href=\"%s\"><div class=\"pure-g g-color-%s\">"+
-	"<div class=\"pure-u-1-24\"><div class=\"g-padding\"><span class=\"%s\"></span></div></div>"+
-	"<div class=\"pure-u-1-24\"></div>"+
-	"<div class=\"pure-u-22-24\"><div class=\"g-padding\">%s</div></div>"+
-	"</div></a>", linkHref, colorClass, iconName, htmlName);
+		"<div class=\"pure-u-1-24\"><div class=\"g-padding\"><span class=\"%s\"></span></div></div>"+
+		"<div class=\"pure-u-1-24\"></div>"+
+		"<div class=\"pure-u-22-24\"><div class=\"g-padding\">%s</div></div>"+
+		"</div></a>", linkHref, colorClass, iconName, htmlName)
 }
-

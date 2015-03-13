@@ -44,22 +44,22 @@ func main() {
 		}
 		hgmweb.LaunchProxy(os.Args[2], os.Args[3], webrootPrefix)
 	} else if subModule == "mount" && len(os.Args) >= 3 {
-		proxyUrl := "http://localhost:8080/";
+		proxyUrl := "http://localhost:8080/"
 		if len(os.Args) > 3 {
 			proxyUrl = os.Args[3]
 		}
 		hgmfs.MountFilesystem(os.Args[2], proxyUrl)
 	} else {
 
-fmt.Printf("Usage: %s proxy | mount | encrypt | decrypt\n\n", os.Args[0])
-fmt.Printf(`proxy binaddr bindport [prefix]
+		fmt.Printf("Usage: %s proxy | mount | encrypt | decrypt\n\n", os.Args[0])
+		fmt.Printf(`proxy binaddr bindport [prefix]
 	bindaddr    : IPv4 address to bind to, eg: 127.0.0.1
 	bindport    : Port to use, eg: 8080
 	prefix      : Webroot prefix, eg: secret-location/
 
 `)
 
-fmt.Printf(`mount target [proxy-url]
+		fmt.Printf(`mount target [proxy-url]
 	target      : Mountpoint directory
 	proxy-url   : URL of the launched hgms proxy, defaults to http://localhost:8080/
 

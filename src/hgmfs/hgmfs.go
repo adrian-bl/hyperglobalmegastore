@@ -49,7 +49,7 @@ type hgmFile struct {
 
 type HgmConfig struct {
 	mountpoint string
-	proxyUrl string
+	proxyUrl   string
 }
 
 func getLocalPath(fusepath string) string {
@@ -57,7 +57,7 @@ func getLocalPath(fusepath string) string {
 }
 
 // Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
-func discardBody(toSkip int64, reader io.ReadCloser) (error) {
+func discardBody(toSkip int64, reader io.ReadCloser) error {
 	for toSkip != 0 {
 		tmpSize := toSkip
 		if tmpSize > maxBufSize {
@@ -138,8 +138,8 @@ func (f *hgmFile) Utimens(a *time.Time, m *time.Time) fuse.Status {
 	return fuse.EROFS
 }
 
-func (f *hgmFile) StatFS(name string) (*fuse.StatfsOut) {
-	sFs := fuse.StatfsOut{Blocks:12345, Bfree: 12345, Bavail: 12345, Files: 0, Ffree: 0, Bsize: 4096, NameLen: 255, Frsize: 3, Padding: 0}
+func (f *hgmFile) StatFS(name string) *fuse.StatfsOut {
+	sFs := fuse.StatfsOut{Blocks: 12345, Bfree: 12345, Bavail: 12345, Files: 0, Ffree: 0, Bsize: 4096, NameLen: 255, Frsize: 3, Padding: 0}
 	fmt.Printf("> statfs %s\n", name)
 	return &sFs
 }
@@ -170,7 +170,6 @@ func (f *hgmFile) Release() {
 		f.resp.Body.Close()
 	}
 }
-
 
 // VFS Read call: Reads len(dst) bytes at offset off
 func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
@@ -207,17 +206,17 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		mustSeek := off - f.offset
 		wantBlobIdx := int64(off / f.jsonMetadata.BlobSize)
 		haveBlobIdx := int64(f.offset / f.jsonMetadata.BlobSize)
-		
+
 		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
 			fmt.Printf("<%08X> Could do a quick seek by dropping %d bytes\n", rqid, mustSeek)
 
 			// Throw away mustSeek bytes
-			err := discardBody(mustSeek, f.resp.Body);
+			err := discardBody(mustSeek, f.resp.Body)
 			if err != nil {
-				return nil, fuse.EIO;
+				return nil, fuse.EIO
 			}
-			f.offset += mustSeek;
-			fmt.Printf("<%08X> now at offset %d\n", rqid, f.offset);
+			f.offset += mustSeek
+			fmt.Printf("<%08X> now at offset %d\n", rqid, f.offset)
 
 		} else {
 			f.resp.Body.Close()
@@ -242,7 +241,7 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 		hclient := &http.Client{Transport: tr}
 		resp, err := hclient.Do(req)
 		if err != nil {
-		fmt.Printf("Got err: %",err);
+			fmt.Printf("Got err: %", err)
 			return nil, fuse.EIO
 		}
 
@@ -251,10 +250,10 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 			resp.Body.Close()
 			return nil, fuse.EIO
 		} else if resp.StatusCode == 200 && off != 0 {
-			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off);
-			err = discardBody(off, resp.Body);
+			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
+			err = discardBody(off, resp.Body)
 			if err != nil {
-				return nil, fuse.EIO;
+				return nil, fuse.EIO
 			}
 		}
 		f.offset = off
@@ -349,7 +348,7 @@ func MountFilesystem(mountpoint string, proxy string) {
 	}
 	fmt.Printf("Filesystem mounted at '%s', using '%s' as upstream source\n", mountpoint, proxy)
 
-	hgmConfig = new (HgmConfig)
+	hgmConfig = new(HgmConfig)
 
 	hgmConfig.mountpoint = mountpoint
 	hgmConfig.proxyUrl = proxy
