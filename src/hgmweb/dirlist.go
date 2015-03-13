@@ -49,7 +49,8 @@ func serveDirectoryList(w http.ResponseWriter, pconf *proxyParams, fspath string
 	i := 0
 	for fidx := range dirList {
 		fi := dirList[fidx]
-		linkName := url.QueryEscape(fi.Name())
+		linkURL := &url.URL{Path: fi.Name()}
+		linkName := linkURL.String()
 		htmlName := html.EscapeString(fi.Name())
 		linkIcon := "entypo-docs"
 		if fi.IsDir() {
