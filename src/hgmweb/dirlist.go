@@ -35,7 +35,7 @@ var reIsPicture = regexp.MustCompile("(?i)\\.(jpeg|jpg|gif|png|bmp)$")
  * @desc Writes an HTML listing of the directory pointed at by fspath to
  *       the http.ResponseWriter
  */
-func serveDirectoryList(w http.ResponseWriter, fspath string, pconf *proxyParams) {
+func serveDirectoryList(w http.ResponseWriter, pconf *proxyParams, fspath string) {
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
 	dirList, _ := ioutil.ReadDir(fspath)

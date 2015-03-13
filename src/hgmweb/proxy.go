@@ -127,7 +127,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			/* no index, handle dirlist: */
 			if displayFormat == FORMAT_DEFAULT {
-				serveDirectoryList(w, aliasPath, proxyConfig)
+				serveDirectoryList(w, proxyConfig, aliasPath)
 			} else if displayFormat == FORMAT_M3U {
 				servePlaylist(w, r, aliasPath)
 			} else {
