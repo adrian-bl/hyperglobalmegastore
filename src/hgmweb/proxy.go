@@ -31,6 +31,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -48,9 +49,10 @@ type proxyParams struct {
 	Assets   string /* prefix of static files */
 }
 
-type RqMeta struct {
+type rqMeta struct {
 	Location     [][]string /* Raw HTTP URL            */
 	Key          string     /* 7-bit ascii hex string  */
+	Attachment   string     /* Filename to use on forced download */
 	Created      int64      /* file-creation timestamp */
 	BlobSize     int64
 	RangeRequest bool
@@ -58,8 +60,9 @@ type RqMeta struct {
 }
 
 const (
-	FORMAT_DEFAULT = ""
-	FORMAT_M3U     = "m3u"
+	FORMAT_DEFAULT  = ""
+	FORMAT_DOWNLOAD = "download"
+	FORMAT_M3U      = "m3u"
 )
 
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
@@ -99,12 +102,12 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 
-	displayFormat := r.URL.Query().Get("format")
+	deliveryFormat := r.URL.Query().Get("format")
 	unEscapedRqUri := r.URL.Path
 	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.Webroot):]
 
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
-	fmt.Printf("GET=%s, raw=%s, format=%s\n", aliasPath, r.URL.Path, displayFormat)
+	fmt.Printf("GET=%s, raw=%s, format=%s\n", aliasPath, r.URL.Path, deliveryFormat)
 
 	fi, err := os.Stat(aliasPath)
 	if err != nil {
@@ -126,9 +129,9 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			/* no index, handle dirlist: */
-			if displayFormat == FORMAT_DEFAULT {
+			if deliveryFormat == FORMAT_DEFAULT {
 				serveDirectoryList(w, proxyConfig, aliasPath)
-			} else if displayFormat == FORMAT_M3U {
+			} else if deliveryFormat == FORMAT_M3U {
 				servePlaylist(w, r, aliasPath)
 			} else {
 				w.WriteHeader(http.StatusNotImplemented)
@@ -148,7 +151,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var js RqMeta
+	var js rqMeta
 	err = json.Unmarshal([]byte(content), &js)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -172,7 +175,11 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
 		js.RangeRequest = false
 	}
 
-	fmt.Printf("HTTP: Range-Request for offset %d (raw=%s)\n", js.RangeFrom, r.Header.Get("Range"))
+	if js.RangeFrom == 0 && deliveryFormat == FORMAT_DOWNLOAD {
+		js.Attachment = getFilename(unEscapedRqUri)
+	}
+
+	fmt.Printf("HTTP: Range-Request for offset %d, raw=%s, attachment=%s\n", js.RangeFrom, r.Header.Get("Range"), js.Attachment)
 
 	/* We got all required info: serve HTTP request to client */
 	serveFullURI(w, r, js)
@@ -182,7 +189,7 @@ func handleAlias(w http.ResponseWriter, r *http.Request) {
  * Handle request for given targetURI
  */
 
-func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
+func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 
 	/* Our encryption key is stored as an hex-ascii string
 	 * within the JSON file */
@@ -236,6 +243,13 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 				headersSent = true
 				dst.Header().Set("Last-Modified", time.Unix(rqm.Created, 0).Format(http.TimeFormat))
 				dst.Header().Set("Accept-Range", "bytes")
+
+				// Caller requested us to send a predefined filename
+				if len(rqm.Attachment) > 0 {
+					dst.Header().Set("Content-Disposition", fmt.Sprintf(`attachment: filename="%s"`, escapeQuotes(rqm.Attachment)))
+				}
+
+				// Send correct content length and range for this case
 				if rqm.RangeRequest == false {
 					dst.Header().Set("Content-Length", fmt.Sprintf("%d", pngReader.ContentSize))
 					dst.WriteHeader(http.StatusOK)
@@ -274,4 +288,23 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm RqMeta) {
 		}
 	}
 
+}
+
+/**
+ * Returns the last filename of given path, so therefore the string after the last slash
+ * Returns an empty string on error
+ */
+var filenameGetter = regexp.MustCompile("[^/]+$")
+
+func getFilename(s string) string {
+	return filenameGetter.FindString(s)
+}
+
+/**
+ * Escape quote characters, taken from golangs mime/multipart/writer.go
+ */
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
 }
