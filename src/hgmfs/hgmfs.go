@@ -227,11 +227,11 @@ func (f *hgmFile) Read(dst []byte, off int64) (fuse.ReadResult, fuse.Status) {
 
 	// No open http connection: Create a new request
 	if f.resp == nil {
-		esc := url.QueryEscape(f.fuseFilename)
+		linkURL := &url.URL{Path: f.fuseFilename}
+		linkName := linkURL.String()
+		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, linkName)
 
-		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, esc)
-
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", hgmConfig.proxyUrl, esc), nil)
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", hgmConfig.proxyUrl, linkName), nil)
 		if err != nil {
 			return nil, fuse.EIO
 		}
