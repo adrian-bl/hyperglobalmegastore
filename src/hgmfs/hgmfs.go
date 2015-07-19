@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -28,13 +27,11 @@ type HgmDir struct {
 }
 
 type HgmFile struct {
-	sync.Mutex // Mutex to lock the struct
 	hgmFs      HgmFs
 	localFile  string
 	blobSize   int64
 	resp       *http.Response // An HTTP connection, may be nil
 	offset     int64          // Current offset of 'resp'
-	// readQueue map[int32]int64 // Array with queued read requests, used to minimize 'seeks-over-http'
 }
 
 /* fixme: duplicate code */
@@ -214,31 +211,6 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	rqid := req.Handle
 	off := req.Offset
 
-	// Inject or request into the queue
-	file.Lock()
-	// file.readQueue[rqid] = off RQQQ
-	file.Unlock()
-
-	// This request will wait in the queue until....
-	// -> The HTTP-Client offset is at the correct position, OR
-	// -> We waited 3 rounds and are still the best match, OR
-	// -> We waited 5 rounds and are the ONLY request, OR
-	// -> We got stuck and break out after 10 wait-rounds
-	retry := 0
-	for loop := true; loop; {
-		file.Lock()
-
-		//	RQQQ if (file.offset == off) || retry > 2 && file.nextInQueue(off) || (len(file.readQueue) == 1 && retry > 5) || (retry > 10) {
-		if 1 == 1 {
-			loop = false
-			defer file.Unlock()
-		} else {
-			file.Unlock()
-			retry++
-			time.Sleep(0.02 * 1e9)
-		}
-	}
-
 	// Our open HTTP connection is at the wrong offset.
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
 	if off != file.offset && file.resp != nil {
@@ -263,6 +235,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 			file.resp.Body.Close()
 			file.resp = nil
 			file.offset = 0
+			fmt.Printf("<%08X> connection was reset (mm=%d, wb=%d, hb=%d)\n", rqid, mustSeek, wantBlobIdx, haveBlobIdx)
 		}
 	}
 
@@ -316,21 +289,10 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	}
 
 	file.offset += int64(bytesRead)
-	//delete(file.readQueue, rqid) RQQQ
+
 	return nil
 }
 
-/*func (file *HgmFile) nextInQueue(want int64) bool {
-	if want < file.offset {
-		return false
-	}
-	for _, v := range file.readQueue {
-		if v >= file.offset && v < want {
-			return false
-		}
-	}
-	return true
-}*/
 
 // Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
 func discardBody(toSkip int64, reader io.ReadCloser) error {
