@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Adrian Ulrich <adrian@blinkenlights.ch>
+ * Copyright (C) 2013-2015 Adrian Ulrich <adrian@blinkenlights.ch>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,13 +56,15 @@ func (self *AesTool) SetSkipBytes(sb *int64) {
 
 // Handles all decryption and encryption work
 func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMode) (err error) {
-	blockSize := cb.BlockSize()
+	cipherBlockSize := cb.BlockSize()
+	blockSize := cipherBlockSize * 1024 // 16K for AES
 	blockBuf := make([]byte, blockSize)
 
 	for self.streamlen != 0 {
 		wFrom := int64(0)
 		wTo := int64(blockSize)
-		_, er := io.ReadFull(src, blockBuf)
+
+		_, er := src.Read(blockBuf[0:])
 
 		if er == io.EOF {
 			break /* not really an error for us */

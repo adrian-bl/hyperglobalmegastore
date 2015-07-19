@@ -38,6 +38,11 @@ You can then launch the proxy via
 ./hgmcmd proxy 127.0.0.1 8080
 ```
 
+Hint: You can instruct the hyperglobalmegastore-proxy to use a local forwarding proxy (such as Squid or ATS/YTS):
+```bash
+http_proxy=http://127.0.0.1:3128 ./hgmcmd proxy 127.0.0.1 8080
+```
+
 The proxy will use ./_aliases as its json-storage directory (fixme: this will change)
 
 Mounting the filesystem via FUSE is also possible. Just run
