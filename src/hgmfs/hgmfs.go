@@ -27,11 +27,11 @@ type HgmDir struct {
 }
 
 type HgmFile struct {
-	hgmFs      HgmFs
-	localFile  string
-	blobSize   int64
-	resp       *http.Response // An HTTP connection, may be nil
-	offset     int64          // Current offset of 'resp'
+	hgmFs     HgmFs
+	localFile string
+	blobSize  int64
+	resp      *http.Response // An HTTP connection, may be nil
+	offset    int64          // Current offset of 'resp'
 }
 
 /* fixme: duplicate code */
@@ -292,7 +292,6 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 	return nil
 }
-
 
 // Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
 func discardBody(toSkip int64, reader io.ReadCloser) error {

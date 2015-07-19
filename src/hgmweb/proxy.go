@@ -271,7 +271,8 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 			backendResp.Body.Close()
 
 			if err != nil {
-				panic(err)
+				fmt.Printf("  >> breaking due to error: %s\n", err)
+				break
 			}
 
 			servedCopy = true
