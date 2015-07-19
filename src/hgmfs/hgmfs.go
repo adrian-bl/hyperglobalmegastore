@@ -6,9 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"golang.org/x/net/context"
+	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -24,8 +28,13 @@ type HgmDir struct {
 }
 
 type HgmFile struct {
-	hgmFs     HgmFs
-	localFile string
+	sync.Mutex // Mutex to lock the struct
+	hgmFs      HgmFs
+	localFile  string
+	blobSize   int64
+	resp       *http.Response // An HTTP connection, may be nil
+	offset     int64          // Current offset of 'resp'
+	// readQueue map[int32]int64 // Array with queued read requests, used to minimize 'seeks-over-http'
 }
 
 /* fixme: duplicate code */
@@ -40,8 +49,12 @@ type JsonMeta struct {
 /**
  * Returns the root-node point
  */
-func getLocalPath(fusepath string) string {
-	return fmt.Sprintf("./_aliases/%s", fusepath)
+func getMetaRoot() string {
+	return fmt.Sprintf("./_aliases/")
+}
+
+func dropMetaRoot(fusestring string) string {
+	return fusestring[len(getMetaRoot()):]
 }
 
 /**
@@ -108,7 +121,7 @@ func MountFilesystem(mountpoint string, proxy string) {
  * Returns the filesystem root node (a directory)
  */
 func (fs HgmFs) Root() (fs.Node, error) {
-	return HgmDir{hgmFs: fs, localDir: getLocalPath("./")}, nil
+	return HgmDir{hgmFs: fs, localDir: getMetaRoot()}, nil
 }
 
 /**
@@ -123,15 +136,13 @@ func (dir HgmDir) Attr(ctx context.Context, a *fuse.Attr) error {
 
 	attrFromStat(st, a)
 	a.Mode = os.ModeDir | a.Mode
-	fmt.Printf("STAT(%s) finished\n", dir.localDir)
 	return nil
-
 }
 
 /**
  * Stat()'s the current file
  */
-func (file HgmFile) Attr(ctx context.Context, a *fuse.Attr) error {
+func (file *HgmFile) Attr(ctx context.Context, a *fuse.Attr) error {
 	st := syscall.Stat_t{}
 	err := syscall.Stat(file.localFile, &st)
 	if err != nil {
@@ -142,8 +153,6 @@ func (file HgmFile) Attr(ctx context.Context, a *fuse.Attr) error {
 	// This is a file, so we are delivering the filesize of the actual content
 	jsonMeta, _ := getJsonMeta(file.localFile) // Filesize will be '0' on error, that's ok for us
 	a.Size = jsonMeta.ContentSize
-
-	fmt.Printf("fSTAT(%s) finished\n", file.localFile)
 	return nil
 }
 
@@ -157,17 +166,24 @@ func (dir HgmDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		return nil, fuse.ENOENT
 	}
 
-	fmt.Printf("LOOKUP(%s)\n", localDirent)
 	if stat.IsDir() {
 		return HgmDir{hgmFs: dir.hgmFs, localDir: localDirent + "/"}, nil
 	}
-	// else
-	return HgmFile{hgmFs: dir.hgmFs, localFile: localDirent}, nil
+
+	// Probably a file:
+	jsonMeta, jsonErr := getJsonMeta(localDirent)
+	if jsonErr == nil {
+		return &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: jsonMeta.BlobSize}, nil
+	}
+
+	// JSON was bad: return io error
+	return nil, fuse.EIO
 }
 
 /**
  * Returns a complete directory list
  */
+
 func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	sysDirList, err := ioutil.ReadDir(dir.localDir)
 	if err != nil {
@@ -184,4 +200,153 @@ func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		fuseDirList = append(fuseDirList, dirent)
 	}
 	return fuseDirList, nil
+}
+
+func (file *HgmFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+	if file.resp != nil {
+		file.resp.Body.Close()
+	}
+	fmt.Printf("<%08X> Closed due to RELEASE()\n", req.Handle)
+	return nil
+}
+
+func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+	rqid := req.Handle
+	off := req.Offset
+
+	// Inject or request into the queue
+	file.Lock()
+	// file.readQueue[rqid] = off RQQQ
+	file.Unlock()
+
+	// This request will wait in the queue until....
+	// -> The HTTP-Client offset is at the correct position, OR
+	// -> We waited 3 rounds and are still the best match, OR
+	// -> We waited 5 rounds and are the ONLY request, OR
+	// -> We got stuck and break out after 10 wait-rounds
+	retry := 0
+	for loop := true; loop; {
+		file.Lock()
+
+		//	RQQQ if (file.offset == off) || retry > 2 && file.nextInQueue(off) || (len(file.readQueue) == 1 && retry > 5) || (retry > 10) {
+		if 1 == 1 {
+			loop = false
+			defer file.Unlock()
+		} else {
+			file.Unlock()
+			retry++
+			time.Sleep(0.02 * 1e9)
+		}
+	}
+
+	// Our open HTTP connection is at the wrong offset.
+	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
+	if off != file.offset && file.resp != nil {
+		mustSeek := off - file.offset
+		wantBlobIdx := int64(off / file.blobSize)         // Blob we want to start reading from
+		haveBlobIdx := int64(file.offset / file.blobSize) // Blob of currently open connection
+		keepConn := false
+
+		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
+			err := discardBody(mustSeek, file.resp.Body)
+			if err == nil {
+				file.offset += mustSeek
+				keepConn = true
+				fmt.Printf("<%08X> skipped %d bytes via fast-forward\n", rqid, mustSeek)
+			}
+		}
+
+		// Close and reset the connection if we failed to do a fast forward
+		// This may even happen if everything looked fine: The Go Net-GC might have
+		// killed the http connection
+		if keepConn == false {
+			file.resp.Body.Close()
+			file.resp = nil
+			file.offset = 0
+		}
+	}
+
+	// No open http connection: Create a new request
+	if file.resp == nil {
+		linkURL := &url.URL{Path: file.localFile}
+		linkName := linkURL.String()
+		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, linkName)
+
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", file.hgmFs.proxyUrl, dropMetaRoot(linkName)), nil)
+		if err != nil {
+			return fuse.EIO
+		}
+
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
+		tr := &http.Transport{ResponseHeaderTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
+		hclient := &http.Client{Transport: tr}
+		resp, err := hclient.Do(req)
+		if err != nil {
+			return fuse.EIO
+		}
+
+		if resp.StatusCode != 200 && resp.StatusCode != 206 {
+			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, file.localFile)
+			resp.Body.Close()
+			return fuse.EIO
+		} else if resp.StatusCode == 200 && off != 0 {
+			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
+			err = discardBody(off, resp.Body)
+			if err != nil {
+				return fuse.EIO
+			}
+		}
+		file.offset = off
+		file.resp = resp
+	}
+
+	bytesRead := 0
+	mustRead := req.Size
+	resp.Data = make([]byte, mustRead)
+
+	for bytesRead != mustRead {
+		canRead := mustRead - bytesRead
+		tmpBuf := make([]byte, canRead)
+		didRead, err := file.resp.Body.Read(tmpBuf)
+		if err != nil && didRead == 0 {
+			break
+		}
+		copy(resp.Data[bytesRead:], tmpBuf[:didRead])
+		bytesRead += didRead
+	}
+
+	file.offset += int64(bytesRead)
+	//delete(file.readQueue, rqid) RQQQ
+	return nil
+}
+
+/*func (file *HgmFile) nextInQueue(want int64) bool {
+	if want < file.offset {
+		return false
+	}
+	for _, v := range file.readQueue {
+		if v >= file.offset && v < want {
+			return false
+		}
+	}
+	return true
+}*/
+
+// Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
+func discardBody(toSkip int64, reader io.ReadCloser) error {
+	maxBufSize := int64(1024 * 1024) // Keep at most 1MB in memory
+
+	for toSkip != 0 {
+		tmpSize := toSkip
+		if tmpSize > maxBufSize {
+			tmpSize = maxBufSize
+		}
+		tmpBuf := make([]byte, tmpSize)
+		didSkip, err := reader.Read(tmpBuf)
+		if err != nil {
+			return err
+		}
+		toSkip -= int64(didSkip)
+	}
+	return nil
 }
