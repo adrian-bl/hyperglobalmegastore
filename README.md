@@ -22,12 +22,13 @@ looking at them.
 How to install
 ----------------------------------------------
 
-Golang >= 1.1 and some Perl5 modules are required.
+Golang >= 1.3 and some Perl5 modules are required.
 
 To compile the proxy, run:
 
 ```bash
-./compile.sh
+make deps
+make
 ```
 
 This should produce the hgmcmd binary.
