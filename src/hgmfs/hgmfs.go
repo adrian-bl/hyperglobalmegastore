@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"golang.org/x/net/context"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -42,6 +41,8 @@ type JsonMeta struct {
 	ContentSize uint64
 	BlobSize    int64
 }
+
+var lruBlockSize = 4096
 
 /**
  * Returns the root-node point
@@ -220,11 +221,10 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		keepConn := false
 
 		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
-			err := discardBody(mustSeek, file.resp.Body)
+			err := file.discardBody(mustSeek)
 			if err == nil {
-				file.offset += mustSeek
 				keepConn = true
-				fmt.Printf("<%08X> skipped %d bytes via fast-forward\n", rqid, mustSeek)
+				fmt.Printf("<%08X> skipped %d bytes via fast-forward, now at: %d\n", rqid, mustSeek, file.offset)
 			}
 		}
 
@@ -264,7 +264,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 			return fuse.EIO
 		} else if resp.StatusCode == 200 && off != 0 {
 			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
-			err = discardBody(off, resp.Body)
+			err = file.discardBody(off)
 			if err != nil {
 				return fuse.EIO
 			}
@@ -293,21 +293,24 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	return nil
 }
 
-// Skips X bytes from an io.ReadCloser (fixme: is there a library function?!)
-func discardBody(toSkip int64, reader io.ReadCloser) error {
-	maxBufSize := int64(1024 * 1024) // Keep at most 1MB in memory
+// Discards count bytes from the filehandle connected
+// to the HgmFile descriptor
+func (file *HgmFile) discardBody(count int64) error {
 
-	for toSkip != 0 {
-		tmpSize := toSkip
-		if tmpSize > maxBufSize {
-			tmpSize = maxBufSize
+	byteSink := make([]byte, lruBlockSize)
+
+	for count > 0 {
+		if int64(len(byteSink)) > count {
+			byteSink = byteSink[:count]
 		}
-		tmpBuf := make([]byte, tmpSize)
-		didSkip, err := reader.Read(tmpBuf)
+
+		nr, err := file.resp.Body.Read(byteSink)
 		if err != nil {
 			return err
 		}
-		toSkip -= int64(didSkip)
+		file.offset += int64(nr)
+		count -= int64(nr)
 	}
+
 	return nil
 }
