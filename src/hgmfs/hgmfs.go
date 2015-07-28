@@ -5,6 +5,7 @@ import (
 	"bazil.org/fuse/fs"
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/golang-lru"
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"log"
@@ -42,7 +43,9 @@ type JsonMeta struct {
 	BlobSize    int64
 }
 
-var lruBlockSize = 4096
+var lruBlockSize = int64(4096)
+var lruMaxItems = 16384 // how many lruBlockSize sized items we are storing
+var lruCache *lru.Cache
 
 /**
  * Returns the root-node point
@@ -101,6 +104,12 @@ func MountFilesystem(mountpoint string, proxy string) {
 		log.Fatal(err)
 	}
 	defer c.Close()
+
+	if lruCache == nil {
+		lruCache, _ = lru.New(lruMaxItems)
+	}
+
+	fmt.Printf("Serving FS at '%s' (lru_cache=%.2fMB)\n", mountpoint, float64(lruBlockSize*int64(lruMaxItems)/1024/1024))
 
 	err = fs.Serve(c, HgmFs{mountPoint: mountpoint, proxyUrl: proxy})
 
@@ -221,7 +230,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		keepConn := false
 
 		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
-			err := file.discardBody(mustSeek)
+			err := file.readBody(mustSeek, nil)
 			if err == nil {
 				keepConn = true
 				fmt.Printf("<%08X> skipped %d bytes via fast-forward, now at: %d\n", rqid, mustSeek, file.offset)
@@ -264,7 +273,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 			return fuse.EIO
 		} else if resp.StatusCode == 200 && off != 0 {
 			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
-			err = file.discardBody(off)
+			err = file.readBody(off, nil)
 			if err != nil {
 				return fuse.EIO
 			}
@@ -273,44 +282,59 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		file.resp = resp
 	}
 
-	bytesRead := 0
-	mustRead := req.Size
-	resp.Data = make([]byte, mustRead)
-
-	for bytesRead != mustRead {
-		canRead := mustRead - bytesRead
-		tmpBuf := make([]byte, canRead)
-		didRead, err := file.resp.Body.Read(tmpBuf)
-		if err != nil && didRead == 0 {
-			break
-		}
-		copy(resp.Data[bytesRead:], tmpBuf[:didRead])
-		bytesRead += didRead
-	}
-
-	file.offset += int64(bytesRead)
+	resp.Data = make([]byte, req.Size)
+	file.readBody(int64(req.Size), resp.Data)
 
 	return nil
 }
 
 // Discards count bytes from the filehandle connected
 // to the HgmFile descriptor
-func (file *HgmFile) discardBody(count int64) error {
+// Will put a copy of the read data into copySink if non nil
+// The code will not expand/make copySink!
+func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 
-	byteSink := make([]byte, lruBlockSize)
+	byteSink := make([]byte, lruBlockSize) // sink we are going to throw data at
+	initialOffset := file.offset
 
-	for count > 0 {
+	for count != 0 {
 		if int64(len(byteSink)) > count {
+			// shrink buffer size if we got less to read than allocated
 			byteSink = byteSink[:count]
 		}
 
-		nr, err := file.resp.Body.Read(byteSink)
-		if err != nil {
-			return err
+		nr := 0
+		for nr != len(byteSink) {
+			rb, re := file.resp.Body.Read(byteSink[nr:])
+			nr += rb
+			if re != nil {
+				// may be a partial read with EOF on error
+				err = re
+				break
+			}
 		}
+
+		if copySink != nil {
+			copy(copySink[file.offset-initialOffset:], byteSink[:nr])
+			if file.offset%lruBlockSize == 0 {
+				// Cache whatever we got from a lruBlockSize boundary
+				// this will always be <= lruBlockSize
+				fmt.Printf("Should cache via %s\n", file.lruKey(nr))
+			}
+		}
+
 		file.offset += int64(nr)
 		count -= int64(nr)
-	}
 
-	return nil
+		if err != nil {
+			break
+		}
+
+	}
+	return err
+}
+
+// Returns the cache key used for our in-memory LRU cache
+func (file HgmFile) lruKey(size int) string {
+	return fmt.Sprintf("%d/%d/%s", file.offset, size, file.localFile)
 }
