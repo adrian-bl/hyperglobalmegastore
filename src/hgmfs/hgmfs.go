@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/hashicorp/golang-lru"
 	"golang.org/x/net/context"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -46,6 +47,13 @@ type JsonMeta struct {
 var lruBlockSize = int64(4096)
 var lruMaxItems = 16384 // how many lruBlockSize sized items we are storing
 var lruCache *lru.Cache
+
+// Some handy shared statistics
+var hgmStats = struct {
+	lruEvicted int64
+	bytesHit   int64
+	bytesMiss  int64
+}{}
 
 /**
  * Returns the root-node point
@@ -110,6 +118,7 @@ func MountFilesystem(mountpoint string, proxy string) {
 	}
 
 	fmt.Printf("Serving FS at '%s' (lru_cache=%.2fMB)\n", mountpoint, float64(lruBlockSize*int64(lruMaxItems)/1024/1024))
+	go printStats()
 
 	err = fs.Serve(c, HgmFs{mountPoint: mountpoint, proxyUrl: proxy})
 
@@ -210,16 +219,25 @@ func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (file *HgmFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
-	if file.resp != nil {
-		file.resp.Body.Close()
-	}
-	fmt.Printf("<%08X> Closed due to RELEASE()\n", req.Handle)
+	file.resetHandle()
 	return nil
 }
 
 func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	rqid := req.Handle
 	off := req.Offset
+
+	cacheData, cacheOk := lruCache.Get(file.lruKey(off))
+	if cacheOk {
+		resp.Data = cacheData.([]byte)
+		if len(resp.Data) > req.Size {
+			// chop off if we got too much data
+			resp.Data = resp.Data[:req.Size]
+		}
+
+		hgmStats.bytesHit += int64(len(resp.Data))
+		return nil
+	}
 
 	// Our open HTTP connection is at the wrong offset.
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
@@ -241,9 +259,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		// This may even happen if everything looked fine: The Go Net-GC might have
 		// killed the http connection
 		if keepConn == false {
-			file.resp.Body.Close()
-			file.resp = nil
-			file.offset = 0
+			file.resetHandle()
 			fmt.Printf("<%08X> connection was reset (mm=%d, wb=%d, hb=%d)\n", rqid, mustSeek, wantBlobIdx, haveBlobIdx)
 		}
 	}
@@ -269,7 +285,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, file.localFile)
-			resp.Body.Close()
+			file.resetHandle()
 			return fuse.EIO
 		} else if resp.StatusCode == 200 && off != 0 {
 			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
@@ -294,10 +310,13 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 // The code will not expand/make copySink!
 func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 
-	byteSink := make([]byte, lruBlockSize) // sink we are going to throw data at
 	initialOffset := file.offset
 
 	for count != 0 {
+		// Creates a sink which we are going to use as our read buffer
+		// note that this is re-allocated on each loop as we may pass
+		// this reference to lruCache and must avoid overwriting it afterwards
+		byteSink := make([]byte, lruBlockSize)
 		if int64(len(byteSink)) > count {
 			// shrink buffer size if we got less to read than allocated
 			byteSink = byteSink[:count]
@@ -316,11 +335,16 @@ func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 
 		if copySink != nil {
 			copy(copySink[file.offset-initialOffset:], byteSink[:nr])
-			if file.offset%lruBlockSize == 0 {
-				// Cache whatever we got from a lruBlockSize boundary
-				// this will always be <= lruBlockSize
-				fmt.Printf("Should cache via %s\n", file.lruKey(nr))
+		}
+
+		if file.offset%lruBlockSize == 0 && nr > 0 && (err == nil || err == io.EOF) {
+			// Cache whatever we got from a lruBlockSize boundary
+			// this will always be <= lruBlockSize
+			evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
+			if evicted {
+				hgmStats.lruEvicted++
 			}
+			hgmStats.bytesMiss += int64(nr)
 		}
 
 		file.offset += int64(nr)
@@ -335,6 +359,22 @@ func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 }
 
 // Returns the cache key used for our in-memory LRU cache
-func (file HgmFile) lruKey(size int) string {
-	return fmt.Sprintf("%d/%d/%s", file.offset, size, file.localFile)
+func (file HgmFile) lruKey(offset int64) string {
+	return fmt.Sprintf("%d/%s", offset, file.localFile)
+}
+
+func (file *HgmFile) resetHandle() {
+	if file.resp != nil {
+		file.resp.Body.Close()
+		file.resp = nil
+	}
+	file.offset = 0
+}
+
+func printStats() {
+	for {
+		fmt.Printf("LruFree=%d, LruEvicted=%d, BytesMissed=%d, BytesHit=%d\n",
+			lruMaxItems-lruCache.Len(), hgmStats.lruEvicted, hgmStats.bytesMiss, hgmStats.bytesHit)
+		time.Sleep(time.Second * 1)
+	}
 }
