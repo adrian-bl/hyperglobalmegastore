@@ -5,10 +5,10 @@ import (
 	"bazil.org/fuse/fs"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/golang-lru"
 	"golang.org/x/net/context"
 	"io"
 	"io/ioutil"
+	"libhgms/ssc"
 	"log"
 	"net/http"
 	"net/url"
@@ -44,9 +44,9 @@ type JsonMeta struct {
 	BlobSize    int64
 }
 
-var lruBlockSize = int64(4096)
-var lruMaxItems = 16384 // how many lruBlockSize sized items we are storing
-var lruCache *lru.Cache
+var lruBlockSize = uint64(4096)
+var lruMaxItems = uint64(8192) // how many lruBlockSize sized items we are storing
+var lruCache *ssc.Cache
 
 // Some handy shared statistics
 var hgmStats = struct {
@@ -114,11 +114,13 @@ func MountFilesystem(mountpoint string, proxy string) {
 	defer c.Close()
 
 	if lruCache == nil {
-		lruCache, _ = lru.New(lruMaxItems)
+		lruCache, err = ssc.New("./ssc.db", lruBlockSize, lruMaxItems)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	fmt.Printf("Serving FS at '%s' (lru_cache=%.2fMB)\n", mountpoint, float64(lruBlockSize*int64(lruMaxItems)/1024/1024))
-	go printStats()
+	fmt.Printf("Serving FS at '%s' (lru_cache=%.2fMB)\n", mountpoint, float64(lruBlockSize*lruMaxItems/1024/1024))
 
 	err = fs.Serve(c, HgmFs{mountPoint: mountpoint, proxyUrl: proxy})
 
@@ -229,7 +231,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 	cacheData, cacheOk := lruCache.Get(file.lruKey(off))
 	if cacheOk {
-		resp.Data = cacheData.([]byte)
+		resp.Data = cacheData
 		if len(resp.Data) > req.Size {
 			// chop off if we got too much data
 			resp.Data = resp.Data[:req.Size]
@@ -335,16 +337,15 @@ func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 
 		if copySink != nil {
 			copy(copySink[file.offset-initialOffset:], byteSink[:nr])
-		}
-
-		if file.offset%lruBlockSize == 0 && nr > 0 && (err == nil || err == io.EOF) {
-			// Cache whatever we got from a lruBlockSize boundary
-			// this will always be <= lruBlockSize
-			evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
-			if evicted {
-				hgmStats.lruEvicted++
+			if file.offset%int64(lruBlockSize) == 0 && nr > 0 && (err == nil || err == io.EOF) {
+				// Cache whatever we got from a lruBlockSize boundary
+				// this will always be <= lruBlockSize
+				evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
+				if evicted {
+					hgmStats.lruEvicted++
+				}
+				hgmStats.bytesMiss += int64(nr)
 			}
-			hgmStats.bytesMiss += int64(nr)
 		}
 
 		file.offset += int64(nr)
@@ -369,12 +370,4 @@ func (file *HgmFile) resetHandle() {
 		file.resp = nil
 	}
 	file.offset = 0
-}
-
-func printStats() {
-	for {
-		fmt.Printf("LruFree=%d, LruEvicted=%d, BytesMissed=%d, BytesHit=%d\n",
-			lruMaxItems-lruCache.Len(), hgmStats.lruEvicted, hgmStats.bytesMiss, hgmStats.bytesHit)
-		time.Sleep(time.Second * 1)
-	}
 }
