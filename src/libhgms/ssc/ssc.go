@@ -42,8 +42,8 @@ type chunkmapEntry struct {
 type Cache struct {
 	chunkSize  uint64                    // size in bytes of a single chunk
 	chunkCount uint64                    // amount of chunks we are storing
-	metaMap    []*MetaEntry              // mapping of chunk -> MetaEntry
-	chunkMap   map[uint64]*chunkmapEntry // mapping of hash -> chunk
+	metaMap    []MetaEntry              // mapping of chunk -> MetaEntry
+	chunkMap   map[uint64]chunkmapEntry // mapping of hash -> chunk
 	nextChunk  uint64                    // next chunk to use for writing
 	hasher     hash.Hash64               // hasher implementation
 	fh         *os.File                  // filehandle pointing to our database
@@ -55,8 +55,8 @@ func New(dbpath string, chunksize uint64, chunkcount uint64) (*Cache, error) {
 	c := &Cache{
 		chunkSize:  chunksize,
 		chunkCount: chunkcount,
-		metaMap:    make([]*MetaEntry, chunkcount),
-		chunkMap:   make(map[uint64]*chunkmapEntry, chunkcount),
+		metaMap:    make([]MetaEntry, chunkcount),
+		chunkMap:   make(map[uint64]chunkmapEntry, chunkcount),
 		nextChunk:  uint64(rand.Int63n(int64(chunkcount))), // start at a random index
 		hasher:     crc64.New(crc64.MakeTable(crc64.ECMA)),
 		mutex:      &sync.Mutex{},
@@ -83,7 +83,7 @@ func (c *Cache) Add(key string, value []byte) bool {
 		chunk := c.nextChunk
 		// this index will be changed -> update in-memory struct
 		oldMeta := c.metaMap[chunk]
-		newMeta := &MetaEntry{Key: kh, Len: uint64(len(value)), Checksum: c.hash64(value)}
+		newMeta := MetaEntry{Key: kh, Len: uint64(len(value)), Checksum: c.hash64(value)}
 
 		c.replaceMeta(oldMeta.Key, newMeta, false)
 
@@ -117,12 +117,14 @@ func (c *Cache) Get(key string) (data []byte, ok bool) {
 
 		if chunkEntry.dirty == true { // old data: verify on-disk checksum
 			calcChecksum := c.hash64(data)
+
 			if calcChecksum == memMeta.Checksum {
 				chunkEntry.dirty = false // passed -> do not re-verify
+				c.chunkMap[kh] = chunkEntry
 			} else {
 				fmt.Printf("Corrupted block detected: %d - Checksum %X != %X\n", chunkEntry.chunk, calcChecksum, memMeta.Checksum)
 				fakeKey := c.findFreeKey(0)
-				c.replaceMeta(kh, &MetaEntry{Key: fakeKey}, true)
+				c.replaceMeta(kh, MetaEntry{Key: fakeKey}, true)
 				data = make([]byte, 0)
 				ok = false
 			}
@@ -133,10 +135,10 @@ func (c *Cache) Get(key string) (data []byte, ok bool) {
 	return
 }
 
-func (c *Cache) replaceMeta(oldKey uint64, newMeta *MetaEntry, dirty bool) {
+func (c *Cache) replaceMeta(oldKey uint64, newMeta MetaEntry, dirty bool) {
 	chunk := c.chunkMap[oldKey].chunk
 	delete(c.chunkMap, oldKey)
-	c.chunkMap[newMeta.Key] = &chunkmapEntry{chunk: chunk, dirty: dirty}
+	c.chunkMap[newMeta.Key] = chunkmapEntry{chunk: chunk, dirty: dirty}
 	c.metaMap[chunk] = newMeta
 
 	c.seekToMeta(chunk)
@@ -188,8 +190,8 @@ func (c *Cache) openDbFile(dbpath string) error {
 		fh.Truncate(expectedDbSize)
 	} else if stat.Size() == expectedDbSize {
 		// Size looks sane, try to read superblock
-		sb := &Superblock{}
-		binary.Read(fh, binary.LittleEndian, sb)
+		sb := Superblock{}
+		binary.Read(fh, binary.LittleEndian, &sb)
 		if sb.Magic != SUPER_MAGIC || sb.Version != SUPER_VERSION || sb.ChunkSize != c.chunkSize || sb.ChunkCount != c.chunkCount {
 			fh.Close()
 			return ErrCorruptedDb
@@ -205,11 +207,11 @@ func (c *Cache) openDbFile(dbpath string) error {
 	// Map metadata into memory
 	for chunk := uint64(0); chunk < c.chunkCount; chunk++ {
 		c.seekToMeta(chunk)
-		mEnt := &MetaEntry{}
-		binary.Read(c.fh, binary.LittleEndian, mEnt)
+		mEnt := MetaEntry{}
+		binary.Read(c.fh, binary.LittleEndian, &mEnt)
 
 		mEnt.Key = c.findFreeKey(mEnt.Key) // assigns a random key if this key already exists (causing a checksum fail)
-		c.chunkMap[mEnt.Key] = &chunkmapEntry{chunk: chunk, dirty: true}
+		c.chunkMap[mEnt.Key] = chunkmapEntry{chunk: chunk, dirty: true}
 		c.metaMap[chunk] = mEnt
 	}
 
