@@ -199,6 +199,19 @@ func (dir HgmDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 }
 
 /**
+ * Set flags during file open()
+ */
+func (file *HgmFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+	if !req.Flags.IsReadOnly() {
+		return nil, fuse.Errno(syscall.EACCES)
+	}
+//	resp.Flags |= fuse.OpenDirectIO
+	resp.Flags |= fuse.OpenKeepCache // we are readonly: allow the OS to cache our result
+	return file, nil
+}
+
+
+/**
  * Returns a complete directory list
  */
 
