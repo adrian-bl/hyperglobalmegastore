@@ -297,19 +297,21 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 			return fuse.EIO
 		}
 
+		file.offset = off
+		file.resp = resp
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, file.localFile)
 			file.resetHandle()
 			return fuse.EIO
 		} else if resp.StatusCode == 200 && off != 0 {
 			fmt.Printf("<%08x> Server was unable to fulfill request for offset %d -> reading up to destination\n", rqid, off)
+			file.offset = 0 // we are at the beginning
 			err = file.readBody(off, nil)
 			if err != nil {
+				file.resetHandle()
 				return fuse.EIO
 			}
 		}
-		file.offset = off
-		file.resp = resp
 	}
 
 	resp.Data = make([]byte, 0, req.Size)
