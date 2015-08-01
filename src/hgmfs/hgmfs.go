@@ -205,11 +205,10 @@ func (file *HgmFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse
 	if !req.Flags.IsReadOnly() {
 		return nil, fuse.Errno(syscall.EACCES)
 	}
-//	resp.Flags |= fuse.OpenDirectIO
+	//	resp.Flags |= fuse.OpenDirectIO
 	resp.Flags |= fuse.OpenKeepCache // we are readonly: allow the OS to cache our result
 	return file, nil
 }
-
 
 /**
  * Returns a complete directory list
@@ -313,8 +312,8 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		file.resp = resp
 	}
 
-	resp.Data = make([]byte, req.Size)
-	file.readBody(int64(req.Size), resp.Data)
+	resp.Data = make([]byte, 0, req.Size)
+	file.readBody(int64(req.Size), &resp.Data)
 
 	return nil
 }
@@ -323,9 +322,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 // to the HgmFile descriptor
 // Will put a copy of the read data into copySink if non nil
 // The code will not expand/make copySink!
-func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
-
-	initialOffset := file.offset
+func (file *HgmFile) readBody(count int64, copySink *[]byte) (err error) {
 
 	for count != 0 {
 		// Creates a sink which we are going to use as our read buffer
@@ -349,7 +346,7 @@ func (file *HgmFile) readBody(count int64, copySink []byte) (err error) {
 		}
 
 		if copySink != nil {
-			copy(copySink[file.offset-initialOffset:], byteSink[:nr])
+			*copySink = append(*copySink, byteSink[:nr]...)
 			if file.offset%int64(lruBlockSize) == 0 && nr > 0 && (err == nil || err == io.EOF) {
 				// Cache whatever we got from a lruBlockSize boundary
 				// this will always be <= lruBlockSize
