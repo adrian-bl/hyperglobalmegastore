@@ -40,14 +40,14 @@ type chunkmapEntry struct {
 }
 
 type Cache struct {
-	chunkSize  uint64                    // size in bytes of a single chunk
-	chunkCount uint64                    // amount of chunks we are storing
+	chunkSize  uint64                   // size in bytes of a single chunk
+	chunkCount uint64                   // amount of chunks we are storing
 	metaMap    []MetaEntry              // mapping of chunk -> MetaEntry
 	chunkMap   map[uint64]chunkmapEntry // mapping of hash -> chunk
-	nextChunk  uint64                    // next chunk to use for writing
-	hasher     hash.Hash64               // hasher implementation
-	fh         *os.File                  // filehandle pointing to our database
-	mutex      *sync.Mutex               // cache-wide lock for io and slice operations
+	nextChunk  uint64                   // next chunk to use for writing
+	hasher     hash.Hash64              // hasher implementation
+	fh         *os.File                 // filehandle pointing to our database
+	mutex      *sync.RWMutex            // cache-wide lock for io and slice operations
 }
 
 // Returns an initialized Cache handle with sane defaults
@@ -59,7 +59,7 @@ func New(dbpath string, chunksize uint64, chunkcount uint64) (*Cache, error) {
 		chunkMap:   make(map[uint64]chunkmapEntry, chunkcount),
 		nextChunk:  uint64(rand.Int63n(int64(chunkcount))), // start at a random index
 		hasher:     crc64.New(crc64.MakeTable(crc64.ECMA)),
-		mutex:      &sync.Mutex{},
+		mutex:      &sync.RWMutex{},
 	}
 	err := c.openDbFile(dbpath)
 	return c, err
@@ -104,7 +104,7 @@ func (c *Cache) Add(key string, value []byte) bool {
 func (c *Cache) Get(key string) (data []byte, ok bool) {
 	kh := c.hash64([]byte(key))
 
-	c.mutex.Lock()
+	c.mutex.RLock()
 	chunkEntry, ok := c.chunkMap[kh]
 
 	if ok {
@@ -131,7 +131,7 @@ func (c *Cache) Get(key string) (data []byte, ok bool) {
 		}
 	}
 
-	c.mutex.Unlock()
+	c.mutex.RUnlock()
 	return
 }
 
