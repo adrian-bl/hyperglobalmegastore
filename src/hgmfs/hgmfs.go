@@ -32,7 +32,8 @@ type HgmFile struct {
 	localFile string
 	blobSize  int64
 	resp      *http.Response // An HTTP connection, may be nil
-	offset    int64          // Current offset of 'resp'
+	connected bool
+	offset    int64 // Current offset of 'resp'
 }
 
 /* fixme: duplicate code */
@@ -275,7 +276,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 	// Our open HTTP connection is at the wrong offset.
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
-	if off != file.offset && file.resp != nil {
+	if off != file.offset && file.connected == true {
 		mustSeek := off - file.offset
 		wantBlobIdx := int64(off / file.blobSize)         // Blob we want to start reading from
 		haveBlobIdx := int64(file.offset / file.blobSize) // Blob of currently open connection
@@ -299,7 +300,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	}
 
 	// No open http connection: Create a new request
-	if file.resp == nil {
+	if file.connected == false {
 		linkURL := &url.URL{Path: file.localFile}
 		linkName := linkURL.String()
 		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, linkName)
@@ -317,8 +318,11 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 			return fuse.EIO
 		}
 
+		// got our connection: set it up
 		file.offset = off
 		file.resp = resp
+		file.connected = true
+
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, file.localFile)
 			file.resetHandle()
@@ -336,7 +340,6 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 	resp.Data = make([]byte, 0, req.Size)
 	file.readBody(int64(req.Size), &resp.Data)
-
 	return nil
 }
 
@@ -401,5 +404,6 @@ func (file *HgmFile) resetHandle() {
 		file.resp.Body.Close()
 		file.resp = nil
 	}
+	file.connected = false
 	file.offset = 0
 }
