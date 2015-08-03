@@ -339,8 +339,15 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	}
 
 	resp.Data = make([]byte, 0, req.Size)
-	file.readBody(int64(req.Size), &resp.Data)
-	return nil
+	err := file.readBody(int64(req.Size), &resp.Data)
+
+	if err != nil && err != io.EOF {
+		err = fuse.EIO
+	} else {
+		err = nil // clear EOF
+	}
+
+	return err
 }
 
 // Discards count bytes from the filehandle connected
