@@ -19,12 +19,12 @@ var SUPER_VERSION = uint8(1)
 const SUPERBLOCK_SIZE = 4096
 
 type Superblock struct {
-	Magic      [4]byte    // magic-4-byte sequence
-	Version    uint8      // revision of database layout
-	ChunkSize  uint32     // size in bytes of a single chunk
-	ChunkCount uint32     // how many chunks this database is storing
-	NextChunk  uint32     // next field we are going to use
-	Padding    [4079]byte // align to 4K
+	Magic            [4]byte    // magic-4-byte sequence
+	Version          uint8      // revision of database layout
+	ChunkSize        uint32     // size in bytes of a single chunk
+	ChunkCount       uint32     // how many chunks this database is storing
+	ChunkPointerHint uint32     // next field we are going to use
+	Padding          [4079]byte // align to 4K
 }
 
 const METAENTRY_SIZE = 4 + 4 + 4
@@ -49,6 +49,7 @@ type Cache struct {
 	hasher     hash.Hash32              // hasher implementation
 	fh         *os.File                 // filehandle pointing to our database
 	mutex      *sync.RWMutex            // cache-wide lock for io and slice operations
+	superBlock *Superblock              // reference to currently loaded superblock
 }
 
 // Returns an initialized Cache handle with sane defaults
@@ -61,6 +62,7 @@ func New(dbpath string, chunksize uint32, chunkcount uint32) (*Cache, error) {
 		nextChunk:  0,
 		hasher:     crc32.New(crc32.MakeTable(crc32.IEEE)),
 		mutex:      &sync.RWMutex{},
+		superBlock: nil,
 	}
 	err := c.openDbFile(dbpath)
 	return c, err
@@ -145,6 +147,13 @@ func (c *Cache) replaceMeta(oldKey uint32, newMeta MetaEntry, dirty bool) {
 	c.seekToMeta(chunk)
 	binary.Write(c.fh, binary.LittleEndian, newMeta)
 
+	if chunk%512 == 0 {
+		// We save this lazy and add some slack to (less likely) overwrite new data after reading the SB from disk
+		c.superBlock.ChunkPointerHint = c.nextChunk + 520
+		c.seekToSuperblock()
+		binary.Write(c.fh, binary.LittleEndian, c.superBlock)
+	}
+
 	if len(c.chunkMap) != len(c.metaMap) || uint32(len(c.metaMap)) != c.chunkCount {
 		panic("Corrupted mapping!")
 	}
@@ -157,15 +166,21 @@ func (c *Cache) hash32(b []byte) uint32 {
 	return c.hasher.Sum32()
 }
 
+// Seeks to the superblock file position
+func (c *Cache) seekToSuperblock() error {
+	_, err := c.fh.Seek(0, 0)
+	return err
+}
+
 // Seeks to given chunk-position in the metadata part
 func (c *Cache) seekToMeta(chunk uint32) error {
-	_, err := c.fh.Seek(SUPERBLOCK_SIZE*1+METAENTRY_SIZE*int64(chunk), 0)
+	_, err := c.fh.Seek(int64(SUPERBLOCK_SIZE*1+METAENTRY_SIZE*chunk), 0)
 	return err
 }
 
 // Seeks to given chunk-position in the data part
 func (c *Cache) seekToData(chunk uint32) error {
-	_, err := c.fh.Seek(SUPERBLOCK_SIZE*1+METAENTRY_SIZE*int64(c.chunkCount+chunk*c.chunkSize), 0)
+	_, err := c.fh.Seek(int64(SUPERBLOCK_SIZE*1+METAENTRY_SIZE*c.chunkCount+chunk*c.chunkSize), 0)
 	return err
 }
 
@@ -193,7 +208,7 @@ func (c *Cache) openDbFile(dbpath string) error {
 	} else if stat.Size() == expectedDbSize {
 		// Size looks sane, try to read superblock
 		sb = &Superblock{}
-		binary.Read(fh, binary.LittleEndian, &sb)
+		binary.Read(fh, binary.LittleEndian, sb)
 		if sb.Magic != SUPER_MAGIC || sb.Version != SUPER_VERSION || sb.ChunkSize != c.chunkSize || sb.ChunkCount != c.chunkCount {
 			fh.Close()
 			return ErrCorruptedDb
@@ -205,6 +220,7 @@ func (c *Cache) openDbFile(dbpath string) error {
 	}
 
 	c.fh = fh
+	c.superBlock = sb
 
 	// Map metadata into memory
 	for chunk := uint32(0); chunk < c.chunkCount; chunk++ {
@@ -217,8 +233,8 @@ func (c *Cache) openDbFile(dbpath string) error {
 		c.metaMap[chunk] = mEnt
 	}
 
-	if sb.NextChunk < c.chunkCount {
-		c.nextChunk = sb.NextChunk
+	if sb.ChunkPointerHint < c.chunkCount {
+		c.nextChunk = sb.ChunkPointerHint
 	}
 
 	return nil
