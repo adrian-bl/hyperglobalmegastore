@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"hash/crc32"
+	"hash/crc64"
 	"math/rand"
 	"os"
 	"sync"
@@ -27,10 +27,10 @@ type Superblock struct {
 	Padding          [4079]byte // align to 4K
 }
 
-const METAENTRY_SIZE = 4 + 4 + 4
+const METAENTRY_SIZE = 8 + 4 + 4
 
 type MetaEntry struct {
-	Key      uint32 // crc64 key
+	Key      uint64 // crc64 key
 	Len      uint32 // lenght of this slice (might be < chunksize!)
 	Checksum uint32 // calculated on-disk checksum
 }
@@ -44,9 +44,9 @@ type Cache struct {
 	chunkSize  uint32                   // size in bytes of a single chunk
 	chunkCount uint32                   // amount of chunks we are storing
 	metaMap    []MetaEntry              // mapping of chunk -> MetaEntry
-	chunkMap   map[uint32]chunkmapEntry // mapping of hash -> chunk
+	chunkMap   map[uint64]chunkmapEntry // mapping of hash -> chunk
 	nextChunk  uint32                   // next chunk to use for writing
-	hasher     hash.Hash32              // hasher implementation
+	hasher     hash.Hash64              // hasher implementation
 	fh         *os.File                 // filehandle pointing to our database
 	mutex      *sync.RWMutex            // cache-wide lock for io and slice operations
 	superBlock *Superblock              // reference to currently loaded superblock
@@ -58,9 +58,9 @@ func New(dbpath string, chunksize uint32, chunkcount uint32) (*Cache, error) {
 		chunkSize:  chunksize,
 		chunkCount: chunkcount,
 		metaMap:    make([]MetaEntry, chunkcount),
-		chunkMap:   make(map[uint32]chunkmapEntry, chunkcount),
+		chunkMap:   make(map[uint64]chunkmapEntry, chunkcount),
 		nextChunk:  0,
-		hasher:     crc32.New(crc32.MakeTable(crc32.IEEE)),
+		hasher:     crc64.New(crc64.MakeTable(crc64.ISO)),
 		mutex:      &sync.RWMutex{},
 		superBlock: nil,
 	}
@@ -76,7 +76,7 @@ func (c *Cache) Close() {
 // Adds a new key to the cache
 // returns false if the data was not added to the cache
 func (c *Cache) Add(key string, value []byte) bool {
-	kh := c.hash32([]byte(key))
+	kh := c.hash64([]byte(key))
 
 	c.mutex.Lock()
 	_, addFail := c.chunkMap[kh]
@@ -105,7 +105,7 @@ func (c *Cache) Add(key string, value []byte) bool {
 // Performs a lookup of 'key' in the cache
 // 'ok' will be true if the data could be found in the cache
 func (c *Cache) Get(key string) (data []byte, ok bool) {
-	kh := c.hash32([]byte(key))
+	kh := c.hash64([]byte(key))
 
 	c.mutex.RLock()
 	chunkEntry, ok := c.chunkMap[kh]
@@ -138,7 +138,7 @@ func (c *Cache) Get(key string) (data []byte, ok bool) {
 	return
 }
 
-func (c *Cache) replaceMeta(oldKey uint32, newMeta MetaEntry, dirty bool) {
+func (c *Cache) replaceMeta(oldKey uint64, newMeta MetaEntry, dirty bool) {
 	chunk := c.chunkMap[oldKey].chunk
 	delete(c.chunkMap, oldKey)
 	c.chunkMap[newMeta.Key] = chunkmapEntry{chunk: chunk, dirty: dirty}
@@ -160,10 +160,14 @@ func (c *Cache) replaceMeta(oldKey uint32, newMeta MetaEntry, dirty bool) {
 }
 
 // Returns a CRC32 sum of b
-func (c *Cache) hash32(b []byte) uint32 {
+func (c *Cache) hash64(b []byte) uint64 {
 	c.hasher.Reset()
 	c.hasher.Write(b)
-	return c.hasher.Sum32()
+	return c.hasher.Sum64()
+}
+
+func (c *Cache) hash32(b []byte) uint32 {
+	return uint32(c.hash64(b))
 }
 
 // Seeks to the superblock file position
@@ -242,12 +246,12 @@ func (c *Cache) openDbFile(dbpath string) error {
 
 // Returns a free key in chunkMap, tries to
 // return 'hint'
-func (c *Cache) findFreeKey(hint uint32) uint32 {
+func (c *Cache) findFreeKey(hint uint64) uint64 {
 	for {
 		if _, exists := c.chunkMap[hint]; exists == false {
 			break
 		}
-		hint = uint32(rand.Int31())
+		hint = uint64(rand.Int63())
 	}
 	return hint
 }
