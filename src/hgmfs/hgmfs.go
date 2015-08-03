@@ -45,8 +45,8 @@ type JsonMeta struct {
 	BlobSize    int64
 }
 
-var lruBlockSize = uint64(4096)
-var lruMaxItems = uint64(8192) // how many lruBlockSize sized items we are storing
+var lruBlockSize = uint32(4096)
+var lruMaxItems = uint32(32768) // how many lruBlockSize sized items we are storing
 var lruCache *ssc.Cache
 
 // Some handy shared statistics
