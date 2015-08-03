@@ -139,7 +139,7 @@ func MountFilesystem(mountpoint string, proxy string) {
  * Returns the filesystem root node (a directory)
  */
 func (fs HgmFs) Root() (fs.Node, error) {
-	return HgmDir{hgmFs: fs, localDir: getMetaRoot()}, nil
+	return &HgmDir{hgmFs: fs, localDir: getMetaRoot()}, nil
 }
 
 /**
@@ -189,13 +189,15 @@ func (dir HgmDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	}
 
 	// Probably a file:
+	hgmFile := &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: 0}
 	jsonMeta, jsonErr := getJsonMeta(localDirent)
 	if jsonErr == nil {
-		return &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: jsonMeta.BlobSize}, nil
+		// we could parse the json, so we know the blobsize
+		// a file with a blobsize of 0 would be considered to be empty
+		hgmFile.blobSize = jsonMeta.BlobSize
 	}
 
-	// JSON was bad: return io error
-	return nil, fuse.EIO
+	return hgmFile, nil
 }
 
 /**
@@ -208,6 +210,19 @@ func (file *HgmFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse
 	//	resp.Flags |= fuse.OpenDirectIO
 	resp.Flags |= fuse.OpenKeepCache // we are readonly: allow the OS to cache our result
 	return file, nil
+}
+
+/**
+ * Dummy-out common write requests
+ */
+func (dir *HgmDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
+	return nil, nil, fuse.Errno(syscall.EROFS)
+}
+func (dir *HgmDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	return fuse.Errno(syscall.EROFS)
+}
+func (dir *HgmDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
+	return fuse.Errno(syscall.EROFS)
 }
 
 /**
@@ -240,6 +255,11 @@ func (file *HgmFile) Release(ctx context.Context, req *fuse.ReleaseRequest) erro
 func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	rqid := req.Handle
 	off := req.Offset
+
+	// quickly abort on pseudo-empty files
+	if file.blobSize == 0 {
+		return nil
+	}
 
 	cacheData, cacheOk := lruCache.Get(file.lruKey(off))
 	if cacheOk {
