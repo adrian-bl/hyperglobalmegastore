@@ -1,0 +1,149 @@
+The hgmcmd binary can also be used on Android.
+
+Building for Android is very experimental and hacky.
+
+You'll need:
+
+* A rooted device
+* The ability to compile AOSP (or CyanogenMod)
+* Golang 1.5(rc)
+
+
+
+Step 1: Install gomobile
+----------------------------------------------
+
+Note: This requires Golang 1.5 to be installed!
+
+Follow the instructions described at https://godoc.org/golang.org/x/mobile/cmd/gomobile
+Also try to build the sample android app to verify that your toolchain is working correctly.
+
+
+Step 2: Compile hgmcmd
+----------------------------------------------
+
+You should first apply this patch: (note: the patch points to /storage/sdcard1, you might want to change this)
+
+```
+diff --git a/src/hgmfs/hgmfs.go b/src/hgmfs/hgmfs.go
+index 7d57ccd..a9aa2ab 100644
+--- a/src/hgmfs/hgmfs.go
++++ b/src/hgmfs/hgmfs.go
+@@ -74,9 +74,9 @@ func attrFromStat(st syscall.Stat_t, a *fuse.Attr) {
+ 	a.Inode = st.Ino
+ 	a.Size = uint64(st.Size)
+ 	a.Blocks = uint64(st.Blocks)
+-	a.Atime = time.Unix(st.Atim.Sec, st.Atim.Nsec)
+-	a.Mtime = time.Unix(st.Mtim.Sec, st.Mtim.Nsec)
+-	a.Ctime = time.Unix(st.Ctim.Sec, st.Ctim.Nsec)
++	a.Atime = time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec))
++	a.Mtime = time.Unix(int64(st.Mtim.Sec), int64(st.Mtim.Nsec))
++	a.Ctime = time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec))
+ 	a.Mode = os.FileMode(st.Mode)
+ 	a.Nlink = uint32(st.Nlink)
+ 	a.Uid = st.Uid
+@@ -108,6 +108,7 @@ func MountFilesystem(mountpoint string, proxy string) {
+ 		fuse.Subtype("hgmfs"),
+ 		fuse.LocalVolume(),
+ 		fuse.VolumeName("hgms-volume"),
++		fuse.AllowOther(),
+ 	)
+ 	if err != nil {
+ 		log.Fatal(err)
+@@ -115,7 +116,7 @@ func MountFilesystem(mountpoint string, proxy string) {
+ 	defer c.Close()
+ 
+ 	if lruCache == nil {
+-		lruCache, err = ssc.New("./ssc.db", lruBlockSize, lruMaxItems)
++		lruCache, err = ssc.New("/storage/sdcard1/.ssc.db", lruBlockSize, lruMaxItems)
+ 		if err != nil {
+ 			log.Fatal(err)
+ 		}
+@@ -379,17 +380,21 @@ func (file *HgmFile) readBody(count int64, copySink *[]byte) (err error) {
+ 
+ 		if copySink != nil {
+ 			*copySink = append(*copySink, byteSink[:nr]...)
+-			if file.offset%int64(lruBlockSize) == 0 && nr > 0 && (err == nil || err == io.EOF) {
+-				// Cache whatever we got from a lruBlockSize boundary
+-				// this will always be <= lruBlockSize
+-				evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
+-				if evicted {
+-					hgmStats.lruEvicted++
+-				}
+-				hgmStats.bytesMiss += int64(nr)
+-			}
+ 		}
+ 
++		// Android: Always cache even if we are fast-forwarding
++		// as stagefright does waaay to much random io
++                if file.offset%int64(lruBlockSize) == 0 && nr > 0 && (err == nil || err == io.EOF) {
++                        // Cache whatever we got from a lruBlockSize boundary
++                        // this will always be <= lruBlockSize
++                        evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
++                        if evicted {
++                                hgmStats.lruEvicted++
++                        }
++                        hgmStats.bytesMiss += int64(nr)
++                 }
++
++
+ 		file.offset += int64(nr)
+ 		count -= int64(nr)
+ 
+```
+
+..and then setup your environment via:
+
+```
+export GOMOBILE=/home/adrian/golang/go/pkg/gomobile  # <-- adjust this
+export GOOS=android
+export GOARM=7
+export GOARCH=arm
+export CGO_ENABLED=1
+export CXX=$GOMOBILE/android-ndk-r10e/arm/bin/arm-linux-androideabi-g++
+export CC=$GOMOBILE/android-ndk-r10e/arm/bin/arm-linux-androideabi-gcc
+```
+
+To compile the binary, run:
+```
+$ ./get-deps.sh
+$ export GOPATH=`pwd`
+$ go build -ldflags=-extldflags=-pie -pkgdir=$GOMOBILE/pkg_android_arm hgmcmd
+```
+
+Done! You can now push the binary to your android device (eg: /data/local/) and execute it.
+
+
+
+Fuse support
+----------------------------------------------
+
+Mounting the filesystem will also work on android as long as 'fusermount' is in your $PATH
+CM does not include fusermount, but you can grab a working copy at:
+
+https://github.com/xxDroid/libfuse-android
+(fixme: might still need PIE patching - even with the new NDK?)
+
+
+My android mount-script looks somewhat like this:
+
+```
+#!/system/bin/sh
+
+INSTALL_ROOT=/data/local/hgmfs
+MOUNT_POINT=/_hgmfs
+
+export PATH=$PATH:$INSTALL_ROOT
+
+
+cd $INSTALL_ROOT
+
+mount -o remount,rw / ; mkdir $MOUNT_POINT ; mount -o remount,ro /
+
+killall hgmcmd
+fusermount -u $MOUNT_POINT
+
+export GOMAXPROCS=2
+export GOGC=80
+/system/bin/nohup ./hgmcmd mount $MOUNT_POINT http://upstream-proxy.local:8080/foBar/  &
+```

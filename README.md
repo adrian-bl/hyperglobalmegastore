@@ -54,6 +54,8 @@ Mounting the filesystem via FUSE is also possible. Just run
 
 Note that you need to keep the proxy running while the filesystem is mounted.
 
+You can also cross compile the binary for android, see [README.android](https://github.com/adrian-bl/hyperglobalmegastore/blob/master/README.android) for details.
+
 
 How to upload 'pictures'
 ----------------------------------------------
