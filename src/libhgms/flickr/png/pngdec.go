@@ -113,13 +113,7 @@ func (pr *reader) InitReader() error {
 
 // Our public Read function. Returns the bytes read, err on error.
 func (pr *reader) Read(p []byte) (n int, err error) {
-	return pr.realRead(p)
-}
-
-// The internal read function. This function will automatically uncompress
-// the compressed data and skips any scanline bytes
-func (pr *reader) realRead(p []byte) (n int, err error) {
-	ucChunk := make([]byte, 1024)
+	ucChunk := make([]byte, 1024*16)
 	running := true
 	for running {
 		if len(pr.decoded) < len(p) {
