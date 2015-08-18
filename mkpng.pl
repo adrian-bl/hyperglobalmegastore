@@ -9,13 +9,20 @@ use Getopt::Long;
 
 $| = 1;
 
+my $keysize      = 256;
+my $max_blobsize = 1024*1024*16;
+my $metadir      = "./_aliases/";
+
 my $getopts = {};
+my $TERMINATE = 0;
+
+# Sending HUP to us will quit the process
+# after the current file has been uploaded
+$SIG{HUP} = sub { $TERMINATE = 1; warn "\n$0: SIGHUP received, will terminate after current upload completed...\n"; };
+
 
 GetOptions($getopts, "replicate", "dry-run") or exit 1;
 
-my $keysize      = 256;
-my $max_blobsize = 1024*1024*16;
-my $metadir = "./_aliases/";
 
 unless (-d $metadir) {
 	system("mkdir", "-p", $metadir) and die "mkdir -p $metadir failed: $!\n";
@@ -111,16 +118,21 @@ while(<STDIN>) {
 			print "# OUCH! Flickr failed with '$@' on $pngout, will retry in 10 seconds\n";
 			sleep(10);
 		}
-		print " verify";
+		print " verify ";
 		my $orig_photo = getFullFlickrUrl($photo_html) or die "giving up!\n";
 		push(@remote_parts, $orig_photo);
-		print "\n";
+		print "ok!\n";
 		unlink($pngout);
 	}
 	
 	push(@{$json->{Location}}, \@remote_parts);
 	storeJSON($metaout, $json);
-	
+
+	if($TERMINATE) {
+		print "# Exiting due to SIGHUP\n";
+		last;
+	}
+
 }
 
 sub getJSON {
