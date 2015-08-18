@@ -60,7 +60,18 @@ You can also cross compile the binary for android, see [README.android](https://
 How to upload 'pictures'
 ----------------------------------------------
 
-Creater your flickr account and install and configure Flickr::Upload
+Create your flickr account and configure Flickr::Upload:
+
+1. Run 'flickr_upload --auth' and copy-n-paste the URL into your browser (you should already be logged in to flickr)
+2. Authorize Flickr::Uploader
+3. Hit ENTER and copy the auth_token
+4. Create a ~/.flickrrc file with auth_key and url_prefix (= the URL of your account)
+The file should look like this:
+```
+auth_token=12345678901234567-aabbccddeeffaabb
+url_prefix=https://www.flickr.com/photos/721538313@N05
+```
+
 
 Afterwards run
 
