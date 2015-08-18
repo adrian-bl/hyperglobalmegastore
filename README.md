@@ -76,7 +76,7 @@ url_prefix=https://www.flickr.com/photos/721538313@N05
 Afterwards run
 
 ```bash
-./mkpng.pl file1 file2 file3
+find whatever/ | ./mkpng.pl
 ```
 
 to encrypt and upload your files.

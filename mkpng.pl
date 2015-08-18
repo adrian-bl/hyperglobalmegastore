@@ -11,11 +11,11 @@ $| = 1;
 
 my $getopts = {};
 
-GetOptions($getopts, "prefix|p=s", "skip-existing", "dry-run", "rawpath") or exit 1;
+GetOptions($getopts, "replicate", "dry-run") or exit 1;
 
 my $keysize      = 256;
 my $max_blobsize = 1024*1024*16;
-my $metadir = "./_aliases/$getopts->{prefix}";
+my $metadir = "./_aliases/";
 
 unless (-d $metadir) {
 	system("mkdir", "-p", $metadir) and die "mkdir -p $metadir failed: $!\n";
@@ -38,21 +38,19 @@ while(<STDIN>) {
 	my $encout = "tmp.encrypted.$$";
 	my $pngout = "tmp.png.$$";
 	my $metaout = ( split("/",$source_file) )[-1];
-	
-	if($getopts->{rawpath}) {
-		# The default is to use just the filename
-		# --rawpath changes this: we are using the full name as read from the commandline
-		$metaout = "$metadir/$source_file";
-		my @dirparts = split('/', $metaout);
-		pop(@dirparts);
-		system("mkdir", "-p", join("/", @dirparts));
-	}
+
+	# Construct meta filename
+	$metaout = "$metadir/$source_file";
+	my @dirparts = split('/', $metaout);
+	pop(@dirparts);
+	system("mkdir", "-p", join("/", @dirparts));
+
 	my $json = getJSON($metaout);
 	
 	print "file=$source_file, meta=$metaout ($fsize bytes)...\n   ";
 	
 	if(exists($json->{Key})) {
-		if($getopts->{"skip-existing"}) {
+		unless($getopts->{"replicate"}) {
 			print "# skipping existing file: $metaout\n";
 			next;
 		}
@@ -108,7 +106,7 @@ while(<STDIN>) {
 			eval {
 				$photo_html = flickrUpload($pngout);
 			};
-			print ">> $@ >> $photo_html\n";
+#			print ">> $@ >> $photo_html\n";
 			last unless $@;
 			print "# OUCH! Flickr failed with '$@' on $pngout, will retry in 10 seconds\n";
 			sleep(10);
