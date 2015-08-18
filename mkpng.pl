@@ -133,6 +133,12 @@ sub getJSON {
 
 sub storeJSON {
 	my($metaout, $jref) = @_;
+
+	# Ensure to store this as int
+	foreach my $as_int (qw(ContentSize BlobSize Created)) {
+		$jref->{$as_int} = int($jref->{$as_int});
+	}
+
 	open(META, ">", $metaout) or die "Could not write to $metaout: $!\n";
 	print META to_json($jref, {utf8=>1, pretty=>1});
 	close(META);
