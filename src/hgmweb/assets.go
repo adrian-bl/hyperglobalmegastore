@@ -49,7 +49,7 @@ func serveAsset(w http.ResponseWriter, assetName string) {
  * Returns the wwwpath to given asset name
  */
 func getAssetPath(assetName string, config *proxyParams) string {
-	return fmt.Sprintf("/%s%s%s", config.Webroot, config.Assets, assetName)
+	return fmt.Sprintf("%s%s%s", config.Webroot, config.Assets, assetName)
 }
 
 /**

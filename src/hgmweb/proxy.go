@@ -68,6 +68,19 @@ const (
 )
 
 func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
+
+	// rqPrefix should always START with a slash AND end with a slassh
+	if len(rqPrefix) == 0 {
+		rqPrefix = "/"
+	} else {
+		if rqPrefix[0] != '/' {
+			rqPrefix = "/" + rqPrefix
+		}
+		if rqPrefix[len(rqPrefix)-1] != '/' {
+			rqPrefix += "/"
+		}
+	}
+
 	proxyConfig = new(proxyParams)
 	proxyConfig.BindAddr = bindAddr
 	proxyConfig.BindPort = bindPort
@@ -82,11 +95,11 @@ func startServer() {
 	tr := &http.Transport{ResponseHeaderTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
 	backendClient = &http.Client{Transport: tr}
 
-	fmt.Printf("Proxy accepting connections at http://%s/%s\n", proxyConfig.BindTo, proxyConfig.Webroot)
+	fmt.Printf("Proxy accepting connections at http://%s%s\n", proxyConfig.BindTo, proxyConfig.Webroot)
 
-	http.HandleFunc(fmt.Sprintf("/%s", proxyConfig.Webroot), handleAlias)
-	http.HandleFunc(fmt.Sprintf("/%s%s", proxyConfig.Webroot, proxyConfig.Assets), handleAsset)
-	http.HandleFunc(fmt.Sprintf("/%s%s", proxyConfig.Webroot, proxyConfig.StatSvc), handleStat)
+	http.HandleFunc(fmt.Sprintf("%s", proxyConfig.Webroot), handleAlias)
+	http.HandleFunc(fmt.Sprintf("%s%s", proxyConfig.Webroot, proxyConfig.Assets), handleAsset)
+	http.HandleFunc(fmt.Sprintf("%s%s", proxyConfig.Webroot, proxyConfig.StatSvc), handleStat)
 
 	http.ListenAndServe(proxyConfig.BindTo, nil)
 }
@@ -100,7 +113,7 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// remove prefix
-	assetName = assetName[len(proxyConfig.Webroot)+len(proxyConfig.Assets)+1:] // +1 -> remove leading slash
+	assetName = assetName[len(proxyConfig.Webroot)+len(proxyConfig.Assets):]
 	serveAsset(w, assetName)
 }
 
