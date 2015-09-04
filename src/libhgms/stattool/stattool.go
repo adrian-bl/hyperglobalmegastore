@@ -88,6 +88,8 @@ func LocalStat(path string) (*HgmStatAttr, error) {
 
 	// Drops all non-permission flags
 	modePerm := (stat.Mode & uint32(os.ModePerm))
+	// and kill all write bits -> we are read only
+	modePerm &= 0555
 
 	isDir := false
 	if (stat.Mode & syscall.S_IFMT) == syscall.S_IFDIR {
