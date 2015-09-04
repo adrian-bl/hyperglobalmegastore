@@ -218,6 +218,7 @@ func (dir HgmDir) getStatEndpoint(path string, readdir bool) string {
 	if readdir == true {
 		endpoint += "?op=readdir"
 	}
+	fmt.Printf("GET %s\n", endpoint)
 	return endpoint
 }
 
@@ -278,7 +279,8 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		linkName := linkURL.String()
 		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, linkName)
 
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", file.hgmFs.proxyUrl, linkName), nil)
+		// skip first char in filename as this would be the fs root (/)
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", file.hgmFs.proxyUrl, linkName[1:]), nil)
 		if err != nil {
 			return fuse.EIO
 		}
