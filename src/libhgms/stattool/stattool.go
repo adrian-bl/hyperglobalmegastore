@@ -25,6 +25,10 @@ import (
 	"syscall"
 )
 
+const (
+	StatSvcEndpoint = ".statsvc"
+)
+
 type HgmStatDirent struct {
 	Name  string `json:"Name"`
 	IsDir bool   `json:"IsDir"`

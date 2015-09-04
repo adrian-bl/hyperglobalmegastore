@@ -97,7 +97,7 @@ func (fs HgmFs) Root() (fs.Node, error) {
  * Stat()'s the current directory
  */
 func (dir HgmDir) Attr(ctx context.Context, a *fuse.Attr) error {
-	rqUrl := fmt.Sprintf("%s.statsvc%s", dir.hgmFs.proxyUrl, dir.localDir)
+	rqUrl := fmt.Sprintf("%s%s%s", dir.hgmFs.proxyUrl, stattool.StatSvcEndpoint, dir.localDir)
 	resp, err := http.Get(rqUrl)
 	if err != nil {
 		return fuse.EIO
@@ -181,9 +181,7 @@ func (dir *HgmDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir f
  */
 
 func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-
-	rqUrl := fmt.Sprintf("%s.statsvc%s?op=readdir", dir.hgmFs.proxyUrl, dir.localDir)
-
+	rqUrl := fmt.Sprintf("%s%s%s?op=readdir", dir.hgmFs.proxyUrl, stattool.StatSvcEndpoint, dir.localDir)
 	resp, err := http.Get(rqUrl)
 	if err != nil {
 		return nil, fuse.EIO

@@ -74,7 +74,7 @@ func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	proxyConfig.BindTo = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
 	proxyConfig.Webroot = rqPrefix
 	proxyConfig.Assets = ".assets/"
-	proxyConfig.StatSvc = ".statsvc/"
+	proxyConfig.StatSvc = stattool.StatSvcEndpoint + "/"
 	startServer()
 }
 
