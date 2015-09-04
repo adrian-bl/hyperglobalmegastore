@@ -97,8 +97,7 @@ func (fs HgmFs) Root() (fs.Node, error) {
  * Stat()'s the current directory
  */
 func (dir HgmDir) Attr(ctx context.Context, a *fuse.Attr) error {
-	rqUrl := fmt.Sprintf("%s%s%s", dir.hgmFs.proxyUrl, stattool.StatSvcEndpoint, dir.localDir)
-	resp, err := http.Get(rqUrl)
+	resp, err := http.Get(dir.getStatEndpoint(dir.localDir, false))
 	if err != nil {
 		return fuse.EIO
 	}
@@ -181,8 +180,7 @@ func (dir *HgmDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir f
  */
 
 func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	rqUrl := fmt.Sprintf("%s%s%s?op=readdir", dir.hgmFs.proxyUrl, stattool.StatSvcEndpoint, dir.localDir)
-	resp, err := http.Get(rqUrl)
+	resp, err := http.Get(dir.getStatEndpoint(dir.localDir, true))
 	if err != nil {
 		return nil, fuse.EIO
 	}
@@ -211,6 +209,16 @@ func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	}
 
 	return fuseDirList, fuseErr
+}
+
+// Returns URL to query the stat service
+func (dir HgmDir) getStatEndpoint(path string, readdir bool) string {
+	pathUrl := url.URL{Path: path}
+	endpoint := fmt.Sprintf("%s%s%s", dir.hgmFs.proxyUrl, stattool.StatSvcEndpoint, pathUrl.String())
+	if readdir == true {
+		endpoint += "?op=readdir"
+	}
+	return endpoint
 }
 
 func (file *HgmFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
