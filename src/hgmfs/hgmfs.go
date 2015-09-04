@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"libhgms/ssc"
+	"libhgms/stattool"
 	"log"
 	"net/http"
 	"net/url"
@@ -36,15 +37,6 @@ type HgmFile struct {
 	offset    int64 // Current offset of 'resp'
 }
 
-/* fixme: duplicate code */
-type JsonMeta struct {
-	Location    [][]string
-	Key         string
-	Created     int64
-	ContentSize uint64
-	BlobSize    int64
-}
-
 var lruBlockSize = uint32(4096)
 var lruMaxItems = uint32(32768) // how many lruBlockSize sized items we are storing
 var lruCache *ssc.Cache
@@ -55,48 +47,6 @@ var hgmStats = struct {
 	bytesHit   int64
 	bytesMiss  int64
 }{}
-
-/**
- * Returns the root-node point
- */
-func getMetaRoot() string {
-	return fmt.Sprintf("./_aliases/")
-}
-
-func dropMetaRoot(fusestring string) string {
-	return fusestring[len(getMetaRoot()):]
-}
-
-/**
- * Converts syscall-stat to fuse-stat
- */
-func attrFromStat(st syscall.Stat_t, a *fuse.Attr) {
-	a.Inode = st.Ino
-	a.Size = uint64(st.Size)
-	a.Blocks = uint64(st.Blocks)
-	a.Atime = time.Unix(st.Atim.Sec, st.Atim.Nsec)
-	a.Mtime = time.Unix(st.Mtim.Sec, st.Mtim.Nsec)
-	a.Ctime = time.Unix(st.Ctim.Sec, st.Ctim.Nsec)
-	a.Mode = os.FileMode(st.Mode)
-	a.Nlink = uint32(st.Nlink)
-	a.Uid = st.Uid
-	a.Gid = st.Gid
-	a.Rdev = uint32(st.Rdev)
-	a.BlockSize = uint32(st.Blksize)
-}
-
-/**
- * Returns the decoded json-meta information
- */
-func getJsonMeta(localPath string) (JsonMeta, error) {
-	var jsm JsonMeta
-	content, err := ioutil.ReadFile(localPath)
-	if err != nil {
-		return jsm, err
-	}
-	err = json.Unmarshal([]byte(content), &jsm)
-	return jsm, err
-}
 
 /**
  * Initialized the mount process, called by hgmcmd
@@ -140,65 +90,65 @@ func MountFilesystem(mountpoint string, proxy string) {
  * Returns the filesystem root node (a directory)
  */
 func (fs HgmFs) Root() (fs.Node, error) {
-	return &HgmDir{hgmFs: fs, localDir: getMetaRoot()}, nil
+	return &HgmDir{hgmFs: fs, localDir: "/"}, nil
 }
 
 /**
  * Stat()'s the current directory
  */
 func (dir HgmDir) Attr(ctx context.Context, a *fuse.Attr) error {
-	st := syscall.Stat_t{}
-	err := syscall.Stat(dir.localDir, &st)
+	rqUrl := fmt.Sprintf("%s.statsvc%s", dir.hgmFs.proxyUrl, dir.localDir)
+	resp, err := http.Get(rqUrl)
 	if err != nil {
-		return fuse.ENOENT
+		return fuse.EIO
 	}
 
-	attrFromStat(st, a)
-	a.Mode = os.ModeDir | a.Mode
-	return nil
+	fuseErr := stattool.HttpStatusToFuseErr(resp.StatusCode)
+	if fuseErr == nil {
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err == nil {
+			attr := stattool.HgmStatAttr{}
+			err = json.Unmarshal(bodyBytes, &attr)
+			if err == nil {
+				stattool.AttrFromHgmStat(attr, a)
+			}
+		}
+		if err != nil {
+			fuseErr = fuse.EIO
+		}
+	}
+
+	return fuseErr
 }
 
 /**
  * Stat()'s the current file
  */
 func (file *HgmFile) Attr(ctx context.Context, a *fuse.Attr) error {
-	st := syscall.Stat_t{}
-	err := syscall.Stat(file.localFile, &st)
-	if err != nil {
-		return fuse.ENOENT
-	}
-	attrFromStat(st, a)
-
-	// This is a file, so we are delivering the filesize of the actual content
-	jsonMeta, _ := getJsonMeta(file.localFile) // Filesize will be '0' on error, that's ok for us
-	a.Size = jsonMeta.ContentSize
-	return nil
+	// The directory stat implementation also works for files
+	d := HgmDir{hgmFs: file.hgmFs, localDir: file.localFile}
+	err := d.Attr(ctx, a)
+	return err
 }
 
 /**
  * Performs a lookup-op and returns a file or dir-handle, depending on the file type
  */
 func (dir HgmDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	localDirent := dir.localDir + name // dirs are ending with a slash, so we can just append
-	stat, err := os.Stat(localDirent)
+	localDirent := dir.localDir + name // dirs are ending with a slash -> just append the name
+	a := fuse.Attr{}
+	d := HgmDir{hgmFs: dir.hgmFs, localDir: localDirent}
+	err := d.Attr(ctx, &a)
+
 	if err != nil {
-		return nil, fuse.ENOENT
+		return nil, err
 	}
 
-	if stat.IsDir() {
+	if (a.Mode & os.ModeType) == os.ModeDir {
 		return HgmDir{hgmFs: dir.hgmFs, localDir: localDirent + "/"}, nil
 	}
 
-	// Probably a file:
-	hgmFile := &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: 0}
-	jsonMeta, jsonErr := getJsonMeta(localDirent)
-	if jsonErr == nil {
-		// we could parse the json, so we know the blobsize
-		// a file with a blobsize of 0 would be considered to be empty
-		hgmFile.blobSize = jsonMeta.BlobSize
-	}
-
-	return hgmFile, nil
+	return &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: int64(a.Size)}, nil
 }
 
 /**
@@ -231,21 +181,38 @@ func (dir *HgmDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir f
  */
 
 func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	sysDirList, err := ioutil.ReadDir(dir.localDir)
+
+	rqUrl := fmt.Sprintf("%s.statsvc%s?op=readdir", dir.hgmFs.proxyUrl, dir.localDir)
+
+	resp, err := http.Get(rqUrl)
 	if err != nil {
 		return nil, fuse.EIO
 	}
 
 	fuseDirList := make([]fuse.Dirent, 0)
-	for _, fi := range sysDirList {
-		fuseType := fuse.DT_File
-		if fi.IsDir() {
-			fuseType = fuse.DT_Dir
+	fuseErr := stattool.HttpStatusToFuseErr(resp.StatusCode)
+
+	if fuseErr == nil {
+		hgmDirList := []stattool.HgmStatDirent{}
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err == nil {
+			err = json.Unmarshal(bodyBytes, &hgmDirList)
+			if err == nil {
+				for _, v := range hgmDirList {
+					fuseType := fuse.DT_File
+					if v.IsDir == true {
+						fuseType = fuse.DT_Dir
+					}
+					fuseDirList = append(fuseDirList, fuse.Dirent{Inode: 0, Name: v.Name, Type: fuseType})
+				}
+			}
 		}
-		dirent := fuse.Dirent{Inode: 0, Name: fi.Name(), Type: fuseType}
-		fuseDirList = append(fuseDirList, dirent)
+		if err != nil {
+			fuseErr = fuse.EIO
+		}
 	}
-	return fuseDirList, nil
+
+	return fuseDirList, fuseErr
 }
 
 func (file *HgmFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
@@ -305,7 +272,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		linkName := linkURL.String()
 		fmt.Printf("<%08X> Establishing a new connection, need to seek to %d, fname=%s\n", rqid, off, linkName)
 
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", file.hgmFs.proxyUrl, dropMetaRoot(linkName)), nil)
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", file.hgmFs.proxyUrl, linkName), nil)
 		if err != nil {
 			return fuse.EIO
 		}

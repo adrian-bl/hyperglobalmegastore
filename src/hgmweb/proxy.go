@@ -141,7 +141,6 @@ func handleStat(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, string(jsonBlob))
 }
 
-
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 
 	deliveryFormat := r.URL.Query().Get("format")

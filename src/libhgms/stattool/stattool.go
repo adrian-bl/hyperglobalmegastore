@@ -18,6 +18,8 @@
 package stattool
 
 import (
+	"bazil.org/fuse"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"syscall"
@@ -30,8 +32,8 @@ type HgmStatDirent struct {
 
 type HgmStatAttr struct {
 	Inode     uint64
-	Size      int64
-	Blocks    int64
+	Size      uint64
+	Blocks    uint64
 	Atime     uint64
 	Mtime     uint64
 	Ctime     uint64
@@ -39,13 +41,19 @@ type HgmStatAttr struct {
 	Nlink     uint64
 	Uid       uint32
 	Gid       uint32
-	Rdev      uint64
-	BlockSize int64
+	BlockSize uint64
+	IsDir     bool
 }
 
-/**
- * Calls readdir on a local path, returns an array of HgmStatDirent
- */
+type JsonMeta struct {
+	Location    [][]string
+	Key         string
+	Created     int64
+	ContentSize uint64
+	BlobSize    int64
+}
+
+// Calls readdir on a local path, returns an array of HgmStatDirent entries
 func LocalReadDir(path string) ([]HgmStatDirent, error) {
 	sysDirList, err := ioutil.ReadDir(path)
 
@@ -65,9 +73,7 @@ func LocalReadDir(path string) ([]HgmStatDirent, error) {
 	return dirList, nil
 }
 
-/**
- * Stats a local file
- */
+// Stats a local (json) file
 func LocalStat(path string) (*HgmStatAttr, error) {
 	stat := syscall.Stat_t{}
 	err := syscall.Stat(path, &stat)
@@ -76,27 +82,71 @@ func LocalStat(path string) (*HgmStatAttr, error) {
 		return nil, err
 	}
 
+	// Drops all non-permission flags
+	modePerm := (stat.Mode & uint32(os.ModePerm))
+
+	isDir := false
+	if (stat.Mode & syscall.S_IFMT) == syscall.S_IFDIR {
+		isDir = true
+	}
+
 	a := &HgmStatAttr{
 		Inode:     stat.Ino,
-		Size:      stat.Size,
-		Blocks:    stat.Blocks,
+		Size:      uint64(stat.Size),
+		Blocks:    uint64(stat.Blocks),
 		Atime:     0,
 		Mtime:     0,
 		Ctime:     0,
-		Mode:      stat.Mode,
+		Mode:      modePerm,
+		IsDir:     isDir,
 		Nlink:     stat.Nlink,
 		Uid:       stat.Uid,
 		Gid:       stat.Gid,
-		Rdev:      stat.Rdev, // ??
-		BlockSize: stat.Blksize,
+		BlockSize: uint64(stat.Blksize),
+	}
+
+	// Get size of content if this is a file (eg: we got json info)
+	if isDir == false {
+		a.Size = 0   // invalidate size
+		a.Blocks = 0 // zero size uses zero blocks
+
+		jContent, jErr := ioutil.ReadFile(path)
+		if jErr == nil {
+			jStruct := JsonMeta{}
+			jErr = json.Unmarshal([]byte(jContent), &jStruct)
+			if jErr == nil {
+				a.Size = jStruct.ContentSize
+				a.Blocks = 1 + (a.Size / a.BlockSize) // not using math.Ceil() for this: Blocks is foobar anyway
+			}
+		}
+		// else: size will be zero
 	}
 
 	return a, nil
 }
 
-/**
- * Converts errors returned by stattool to an HTTP status
- */
+// Converts an HgmStatAttr struct to a fuse.Attr struct
+func AttrFromHgmStat(hgm HgmStatAttr, a *fuse.Attr) {
+	a.Inode = hgm.Inode
+	a.Size = uint64(hgm.Size)
+	a.Blocks = uint64(hgm.Blocks)
+	//	a.Atime
+	//	a.Mtime
+	//	a.Ctime
+	a.Mode = os.FileMode(hgm.Mode)
+	a.Nlink = uint32(hgm.Nlink)
+	a.Uid = hgm.Uid
+	a.Gid = hgm.Gid
+	a.Rdev = 0
+	a.BlockSize = uint32(hgm.BlockSize)
+
+	if hgm.IsDir == true {
+		a.Mode |= os.ModeDir
+	}
+
+}
+
+// Translates errors returned by stattool into an HTTP status
 func SysErrToHttpStatus(syserr error) int {
 	switch syserr {
 	case nil:
@@ -109,4 +159,19 @@ func SysErrToHttpStatus(syserr error) int {
 		return 405
 	}
 	return 500
+}
+
+// Translates HTTP codes returned by SysErrToHttpStatus into a fuse error
+func HttpStatusToFuseErr(status int) error {
+	switch status {
+	case 200:
+		return nil
+	case 403:
+		return fuse.EPERM
+	case 404:
+		return fuse.ENOENT
+	case 405:
+		return fuse.EPERM // fuse has no EACCES ?
+	}
+	return fuse.EIO
 }
