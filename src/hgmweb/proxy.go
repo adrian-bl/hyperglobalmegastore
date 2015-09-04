@@ -25,6 +25,7 @@ import (
 	"io/ioutil"
 	"libhgms/crypto/aestool"
 	"libhgms/flickr/png"
+	"libhgms/stattool"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -47,6 +48,7 @@ type proxyParams struct {
 	BindTo   string /* Assembled bind string */
 	Webroot  string /* prefix www root */
 	Assets   string /* prefix of static files */
+	StatSvc  string /* stat service */
 }
 
 type rqMeta struct {
@@ -72,6 +74,7 @@ func LaunchProxy(bindAddr string, bindPort string, rqPrefix string) {
 	proxyConfig.BindTo = fmt.Sprintf("%s:%s", proxyConfig.BindAddr, proxyConfig.BindPort) // fixme: ipv6?
 	proxyConfig.Webroot = rqPrefix
 	proxyConfig.Assets = ".assets/"
+	proxyConfig.StatSvc = ".statsvc/"
 	startServer()
 }
 
@@ -83,6 +86,7 @@ func startServer() {
 
 	http.HandleFunc(fmt.Sprintf("/%s", proxyConfig.Webroot), handleAlias)
 	http.HandleFunc(fmt.Sprintf("/%s%s", proxyConfig.Webroot, proxyConfig.Assets), handleAsset)
+	http.HandleFunc(fmt.Sprintf("/%s%s", proxyConfig.Webroot, proxyConfig.StatSvc), handleStat)
 
 	http.ListenAndServe(proxyConfig.BindTo, nil)
 }
@@ -99,6 +103,44 @@ func handleAsset(w http.ResponseWriter, r *http.Request) {
 	assetName = assetName[len(proxyConfig.Webroot)+len(proxyConfig.Assets)+1:] // +1 -> remove leading slash
 	serveAsset(w, assetName)
 }
+
+/**
+ * stat() RPC endpoint for fuse client
+ * Returns json encoded data, see stattool.go
+ */
+func handleStat(w http.ResponseWriter, r *http.Request) {
+	unEscapedRqUri := r.URL.Path
+	unEscapedRqUri = unEscapedRqUri[len(proxyConfig.StatSvc)+len(proxyConfig.Webroot):]
+	readDirRequested := r.URL.Query().Get("op") == "readdir"
+
+	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
+
+	fmt.Printf("STAT=%s, raw=%s, rdir=%v\n", aliasPath, unEscapedRqUri, readDirRequested)
+
+	var jsonBlob []byte
+	var sysErr error
+
+	if readDirRequested == true {
+		dirList, dirErr := stattool.LocalReadDir(aliasPath)
+		if dirErr == nil {
+			jsonBlob, dirErr = json.Marshal(dirList)
+		}
+		sysErr = dirErr
+	} else {
+		fileStat, fileErr := stattool.LocalStat(aliasPath)
+		if fileErr == nil {
+			jsonBlob, fileErr = json.Marshal(fileStat)
+		}
+		sysErr = fileErr
+	}
+
+	httpStatus := stattool.SysErrToHttpStatus(sysErr)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatus)
+	io.WriteString(w, string(jsonBlob))
+}
+
 
 func handleAlias(w http.ResponseWriter, r *http.Request) {
 
