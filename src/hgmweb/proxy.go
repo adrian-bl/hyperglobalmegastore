@@ -128,8 +128,6 @@ func handleStat(w http.ResponseWriter, r *http.Request) {
 
 	aliasPath := fmt.Sprintf("./_aliases/%s", unEscapedRqUri)
 
-	fmt.Printf("STAT=%s, raw=%s, rdir=%v\n", aliasPath, unEscapedRqUri, readDirRequested)
-
 	var jsonBlob []byte
 	var sysErr error
 

@@ -224,7 +224,6 @@ func (dir HgmDir) getStatEndpoint(path string, readdir bool) string {
 	if readdir == true {
 		endpoint += "?op=readdir"
 	}
-	fmt.Printf("GET %s\n", endpoint)
 	return endpoint
 }
 
