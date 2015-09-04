@@ -31,7 +31,7 @@ type HgmDir struct {
 type HgmFile struct {
 	hgmFs     HgmFs
 	localFile string
-	blobSize  int64
+	fileSize  uint64
 	resp      *http.Response // An HTTP connection, may be nil
 	connected bool
 	offset    int64 // Current offset of 'resp'
@@ -40,6 +40,8 @@ type HgmFile struct {
 var lruBlockSize = uint32(4096)
 var lruMaxItems = uint32(32768) // how many lruBlockSize sized items we are storing
 var lruCache *ssc.Cache
+
+var maxFwdBytes = int64(1024 * 1024 * 2) // never fast-forward more than 2MB
 
 // Some handy shared statistics
 var hgmStats = struct {
@@ -153,7 +155,7 @@ func (dir HgmDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		return HgmDir{hgmFs: dir.hgmFs, localDir: localDirent + "/"}, nil
 	}
 
-	return &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, blobSize: int64(a.Size)}, nil
+	return &HgmFile{hgmFs: dir.hgmFs, localFile: localDirent, fileSize: a.Size}, nil
 }
 
 /**
@@ -237,7 +239,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	off := req.Offset
 
 	// quickly abort on pseudo-empty files
-	if file.blobSize == 0 {
+	if file.fileSize == 0 {
 		return nil
 	}
 
@@ -257,11 +259,9 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	// Do a quick-forward if we can or drop it if we seek backwards or to a far pos
 	if off != file.offset && file.connected == true {
 		mustSeek := off - file.offset
-		wantBlobIdx := int64(off / file.blobSize)         // Blob we want to start reading from
-		haveBlobIdx := int64(file.offset / file.blobSize) // Blob of currently open connection
 		keepConn := false
 
-		if mustSeek > 0 && wantBlobIdx == haveBlobIdx {
+		if mustSeek > 0 && mustSeek < maxFwdBytes {
 			err := file.readBody(mustSeek, nil)
 			if err == nil {
 				keepConn = true
@@ -274,7 +274,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		// killed the http connection
 		if keepConn == false {
 			file.resetHandle()
-			fmt.Printf("<%08X> connection was reset (mm=%d, wb=%d, hb=%d)\n", rqid, mustSeek, wantBlobIdx, haveBlobIdx)
+			fmt.Printf("<%08X> connection was reset (mustSeek=%d)\n", rqid, mustSeek)
 		}
 	}
 
