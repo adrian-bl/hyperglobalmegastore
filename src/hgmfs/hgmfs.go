@@ -52,6 +52,12 @@ var hgmStats = struct {
  * Initialized the mount process, called by hgmcmd
  */
 func MountFilesystem(mountpoint string, proxy string) {
+
+	// The proxy URL should end with a slash, add it if the user forgot about this
+	if proxy[len(proxy)-1] != '/' {
+		proxy += "/"
+	}
+
 	c, err := fuse.Mount(
 		mountpoint,
 		fuse.FSName(fmt.Sprintf("hgmsfs(%s)", proxy)),
