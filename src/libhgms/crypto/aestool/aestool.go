@@ -18,14 +18,13 @@
 package aestool
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
+	"github.com/spacemonkeygo/openssl"
 	"io"
 )
 
 type AesTool struct {
-	encrypter cipher.BlockMode
-	decrypter cipher.BlockMode
+	encrypter openssl.EncryptionCipherCtx
+	decrypter openssl.DecryptionCipherCtx
 	blocksize int
 	streamlen int64
 	skipbytes *int64
@@ -37,15 +36,25 @@ type AesTool struct {
 func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 
-	aesCipher, err := aes.NewCipher(key)
+	aesCipher, err := openssl.GetCipherByName("aes-256-cbc")
+	if err != nil {
+		return nil, err
+	}
+
+	eCtx, err := openssl.NewEncryptionCipherCtx(aesCipher, nil, key, iv)
+	if err != nil {
+		return nil, err
+	}
+
+	dCtx, err := openssl.NewDecryptionCipherCtx(aesCipher, nil, key, iv)
 	if err != nil {
 		return nil, err
 	}
 
 	sbNil := int64(0)
-	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, iv)
-	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, iv)
-	aesTool.blocksize = 16 // aes256
+	aesTool.encrypter = eCtx
+	aesTool.decrypter = dCtx
+	aesTool.blocksize = aesCipher.BlockSize()
 	aesTool.streamlen = streamlen
 	aesTool.SetSkipBytes(&sbNil)
 
@@ -62,28 +71,40 @@ func (self *AesTool) SetSkipBytes(sb *int64) {
 }
 
 // Handles all decryption and encryption work
-func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMode) (err error) {
+func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (err error) {
 	blockSize := 1024 * 512
 	blockBuf := make([]byte, blockSize)
 
+	var ctxt []byte
+	var cerr error
+
 	for self.streamlen != 0 {
 		wFrom := int64(0)
+		wTo := int64(0)
 
 		br, er := src.Read(blockBuf[0:]) // expected to always return a multiple of cb.Blocksize
-		wTo := int64(br)
 
-		if er == io.EOF {
+		if er == io.EOF && br == 0 {
 			break /* not really an error for us */
 		}
 		if er != nil {
 			panic(er)
 		}
 
-		/* still here? -> we got new data to write */
-		cb.CryptBlocks(blockBuf[0:wTo], blockBuf[0:wTo])
+		// De- or Encrypt the data
+		// We expect to get padded data, so no need to call Finish
+		if decrypt == true {
+			ctxt, cerr = self.decrypter.DecryptUpdate(blockBuf[0:br])
+		} else {
+			ctxt, cerr = self.encrypter.EncryptUpdate(blockBuf[0:br])
+		}
+		if cerr != nil {
+			panic(cerr)
+		}
+		copy(blockBuf, ctxt)
+		wTo = int64(len(ctxt)) // may be different (IV)
 
 		if self.streamlen > -1 && wTo > self.streamlen {
-			/* blockBuf = blockBuf[:self.streamlen] */
 			wTo = self.streamlen
 		}
 
@@ -122,10 +143,10 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 
 // Decrypts given input stream. This is a shortcut to cryptWorker
 func (self *AesTool) DecryptStream(writer io.Writer, reader io.Reader) error {
-	return self.cryptWorker(writer, reader, self.decrypter)
+	return self.cryptWorker(writer, reader, true)
 }
 
 // Encrypts given input stream. This is a shortcut to cryptWorker
 func (self *AesTool) EncryptStream(writer io.Writer, reader io.Reader) error {
-	return self.cryptWorker(writer, reader, self.encrypter)
+	return self.cryptWorker(writer, reader, false)
 }
