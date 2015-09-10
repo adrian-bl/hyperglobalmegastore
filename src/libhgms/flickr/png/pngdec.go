@@ -34,7 +34,7 @@ type reader struct {
 	zr           io.Reader // zlib reader
 	uncompressed []byte    // raw data with scanlines
 	decoded      []byte    // decoded -> scanline-free
-	slsize       int       // scanline length
+	slSize       int       // scanline length
 	minBytes     int       // Minimal number of bytes the reader should return
 	IV           []byte    // IV used by this image
 	ContentSize  int64     // Content-Size sent in HTTP header
@@ -82,7 +82,7 @@ func (pr *reader) InitReader() error {
 				} else if payload[9] == 0x6 {
 					bytesPerPixel = 4
 				}
-				pr.slsize = scanlineVal * bytesPerPixel
+				pr.slSize = scanlineVal * bytesPerPixel
 			} else if string(chunk[4:]) == "tEXt" {
 				pairs := bytes.SplitN(payload, []byte("="), 2)
 
@@ -103,7 +103,7 @@ func (pr *reader) InitReader() error {
 	}
 
 	/* scanline size must be > 0 */
-	if pr.slsize < 1 {
+	if pr.slSize < 1 {
 		return errors.New("Invalid scanline size, corrupted or unsupported PNG header")
 	}
 
@@ -129,9 +129,9 @@ func (pr *reader) Read(p []byte) (n int, err error) {
 				running = false
 			}
 			pr.uncompressed = append(pr.uncompressed, ucChunk[0:zbread]...)
-			for len(pr.uncompressed) > pr.slsize {
-				pr.decoded = append(pr.decoded, pr.uncompressed[1:pr.slsize+1]...)
-				pr.uncompressed = pr.uncompressed[pr.slsize+1:]
+			for len(pr.uncompressed) > pr.slSize {
+				pr.decoded = append(pr.decoded, pr.uncompressed[1:pr.slSize+1]...)
+				pr.uncompressed = pr.uncompressed[pr.slSize+1:]
 			}
 		} else {
 			running = false
