@@ -27,7 +27,7 @@ type AesTool struct {
 	decrypter openssl.DecryptionCipherCtx
 	blockSize int
 	streamLen int64
-	skipbytes *int64
+	skipBytes int64
 }
 
 // Returns a new aestool instance. The streamlen parameter specifies
@@ -51,12 +51,10 @@ func New(streamLen int64, key []byte, iv []byte) (*AesTool, error) {
 		return nil, err
 	}
 
-	sbNil := int64(0)
 	aesTool.encrypter = eCtx
 	aesTool.decrypter = dCtx
 	aesTool.blockSize = GetCipherBlockSize()
 	aesTool.streamLen = streamLen
-	aesTool.SetSkipBytes(&sbNil)
 
 	return &aesTool, nil
 }
@@ -70,8 +68,8 @@ func GetCipherName() string {
 	return "aes-256-cbc"
 }
 
-func (self *AesTool) SetSkipBytes(sb *int64) {
-	self.skipbytes = sb
+func (self *AesTool) SetSkipBytes(sb int64) {
+	self.skipBytes = sb
 }
 
 // Handles all decryption and encryption work
@@ -111,15 +109,15 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (er
 			wTo = self.streamLen
 		}
 
-		if *self.skipbytes != 0 {
-			/*			fmt.Printf("> should skip a total of %d bytes\n", *self.skipbytes) */
+		if self.skipBytes != 0 {
+			// fmt.Printf("> should skip a total of %d bytes\n", self.skipBytes)
 			canSkipNow := wTo - wFrom
-			if canSkipNow > *self.skipbytes {
-				canSkipNow = *self.skipbytes
+			if canSkipNow > self.skipBytes {
+				canSkipNow = self.skipBytes
 			}
 			wFrom = canSkipNow
-			/*			fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo) */
-			*self.skipbytes -= canSkipNow
+			// fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo)
+			self.skipBytes -= canSkipNow
 			self.streamLen -= canSkipNow
 
 			if wFrom == wTo {

@@ -256,7 +256,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 
 	/* fixme: div-by-zero: should we care? */
 	bIdx := int64(skipBytes / rqm.BlobSize)
-	skipBytes -= bIdx * rqm.BlobSize
+	skipBytes -= bIdx * rqm.BlobSize // offset to use in bIdx
 
 	fmt.Printf("# stream has %d location(s) and %d chunks, firstBlob is: %d, skip=%d\n", numCopies, numBlobs, bIdx, skipBytes)
 
@@ -318,7 +318,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 			}
 
 			fmt.Printf("  >> replica %d is ok, starting copy stream..., sb=%d\n", ci, skipBytes)
-			aes.SetSkipBytes(&skipBytes)
+			aes.SetSkipBytes(skipBytes)
 			err = aes.DecryptStream(dst, pngReader)
 			backendResp.Body.Close()
 
@@ -339,6 +339,8 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 			fmt.Printf("failed to deliver blob %d, aborting request\n", bIdx+1)
 			break
 		}
+		// first block is done: there will be nothing to skip on any other blocks
+		skipBytes = 0
 	}
 
 }
