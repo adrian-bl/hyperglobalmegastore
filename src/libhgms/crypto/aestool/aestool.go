@@ -26,6 +26,7 @@ import (
 type AesTool struct {
 	encrypter cipher.BlockMode
 	decrypter cipher.BlockMode
+	blocksize int
 	streamlen int64
 	skipbytes *int64
 }
@@ -44,10 +45,16 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	sbNil := int64(0)
 	aesTool.encrypter = cipher.NewCBCEncrypter(aesCipher, iv)
 	aesTool.decrypter = cipher.NewCBCDecrypter(aesCipher, iv)
+	aesTool.blocksize = 16 // aes256
 	aesTool.streamlen = streamlen
 	aesTool.SetSkipBytes(&sbNil)
 
 	return &aesTool, nil
+}
+
+// Returns the block size of the configured cipher
+func (self *AesTool) GetBlockSize() int {
+	return self.blocksize
 }
 
 func (self *AesTool) SetSkipBytes(sb *int64) {
@@ -68,10 +75,10 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 		if er == io.EOF {
 			break /* not really an error for us */
 		}
-		if er != nil && er != io.ErrUnexpectedEOF {
-			err = er
-			break
+		if er != nil {
+			panic(er)
 		}
+
 		/* still here? -> we got new data to write */
 		cb.CryptBlocks(blockBuf[0:wTo], blockBuf[0:wTo])
 
