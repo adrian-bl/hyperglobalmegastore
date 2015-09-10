@@ -25,15 +25,15 @@ import (
 type AesTool struct {
 	encrypter openssl.EncryptionCipherCtx
 	decrypter openssl.DecryptionCipherCtx
-	blocksize int
-	streamlen int64
+	blockSize int
+	streamLen int64
 	skipbytes *int64
 }
 
 // Returns a new aestool instance. The streamlen parameter specifies
 // how many bites we are going to decrypt (the real filesize is unknown
 // to the decryptor due to padding)
-func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
+func New(streamLen int64, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 
 	aesCipher, err := openssl.GetCipherByName(GetCipherName())
@@ -54,8 +54,8 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	sbNil := int64(0)
 	aesTool.encrypter = eCtx
 	aesTool.decrypter = dCtx
-	aesTool.blocksize = GetCipherBlockSize()
-	aesTool.streamlen = streamlen
+	aesTool.blockSize = GetCipherBlockSize()
+	aesTool.streamLen = streamLen
 	aesTool.SetSkipBytes(&sbNil)
 
 	return &aesTool, nil
@@ -76,13 +76,12 @@ func (self *AesTool) SetSkipBytes(sb *int64) {
 
 // Handles all decryption and encryption work
 func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (err error) {
-	blockSize := 1024 * 512
-	blockBuf := make([]byte, blockSize)
+	blockBuf := make([]byte, 1024*512)
 
 	var ctxt []byte
 	var cerr error
 
-	for self.streamlen != 0 {
+	for self.streamLen != 0 {
 		wFrom := int64(0)
 		wTo := int64(0)
 
@@ -108,8 +107,8 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (er
 		copy(blockBuf, ctxt)
 		wTo = int64(len(ctxt)) // may be different (IV)
 
-		if self.streamlen > -1 && wTo > self.streamlen {
-			wTo = self.streamlen
+		if self.streamLen > -1 && wTo > self.streamLen {
+			wTo = self.streamLen
 		}
 
 		if *self.skipbytes != 0 {
@@ -121,7 +120,7 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (er
 			wFrom = canSkipNow
 			/*			fmt.Printf("--> will skip %d bytes: [%d:%d]\n", canSkipNow, wFrom, wTo) */
 			*self.skipbytes -= canSkipNow
-			self.streamlen -= canSkipNow
+			self.streamLen -= canSkipNow
 
 			if wFrom == wTo {
 				// fmt.Printf("Skipping zero-sized write\n")
@@ -130,7 +129,7 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, decrypt bool) (er
 		}
 
 		nw, ew := dst.Write(blockBuf[wFrom:wTo])
-		self.streamlen -= int64(nw)
+		self.streamLen -= int64(nw)
 
 		if int64(nw) != (wTo - wFrom) {
 			err = io.ErrShortWrite
