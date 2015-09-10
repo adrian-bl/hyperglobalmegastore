@@ -56,15 +56,14 @@ func (self *AesTool) SetSkipBytes(sb *int64) {
 
 // Handles all decryption and encryption work
 func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMode) (err error) {
-	cipherBlockSize := cb.BlockSize()
-	blockSize := cipherBlockSize * 1024 // 16K for AES
+	blockSize := 1024 * 512
 	blockBuf := make([]byte, blockSize)
 
 	for self.streamlen != 0 {
 		wFrom := int64(0)
-		wTo := int64(blockSize)
 
-		_, er := src.Read(blockBuf[0:])
+		br, er := src.Read(blockBuf[0:]) // expected to always return a multiple of cb.Blocksize
+		wTo := int64(br)
 
 		if er == io.EOF {
 			break /* not really an error for us */
@@ -74,9 +73,9 @@ func (self *AesTool) cryptWorker(dst io.Writer, src io.Reader, cb cipher.BlockMo
 			break
 		}
 		/* still here? -> we got new data to write */
-		cb.CryptBlocks(blockBuf, blockBuf)
+		cb.CryptBlocks(blockBuf[0:wTo], blockBuf[0:wTo])
 
-		if self.streamlen > -1 && int64(len(blockBuf)) > self.streamlen {
+		if self.streamlen > -1 && wTo > self.streamlen {
 			/* blockBuf = blockBuf[:self.streamlen] */
 			wTo = self.streamlen
 		}
