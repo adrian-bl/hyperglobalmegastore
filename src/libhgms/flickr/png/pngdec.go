@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Adrian Ulrich <adrian@blinkenlights.ch>
+ * Copyright (C) 2013-2015 Adrian Ulrich <adrian@blinkenlights.ch>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,12 +18,17 @@
 package flickr
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"errors"
 	"io"
 	"strconv"
 )
+
+var zlibFeed = 4096              // keep at least 4k of uncompressed data
+var readerBuffSize = 1024 * 1024 // pre-read up to 1MB
+var consumerBlockSize = 16       // Read() always returns a multiple of 16
 
 type reader struct {
 	r            io.Reader /* raw-file reader          */
@@ -102,7 +107,7 @@ func (pr *reader) InitReader() error {
 	}
 
 	/* Add zlib reader to our struct */
-	zr, err := zlib.NewReader(pr.r)
+	zr, err := zlib.NewReader(bufio.NewReaderSize(pr.r, readerBuffSize))
 	if err != nil {
 		return err
 	}
@@ -113,10 +118,10 @@ func (pr *reader) InitReader() error {
 
 // Our public Read function. Returns the bytes read, err on error.
 func (pr *reader) Read(p []byte) (n int, err error) {
-	ucChunk := make([]byte, 1024*16)
+	ucChunk := make([]byte, zlibFeed)
 	running := true
 	for running {
-		if len(pr.decoded) < len(p) {
+		if len(pr.decoded) < zlibFeed {
 			/* Read a compressed chunk */
 			zbread, err := pr.zr.Read(ucChunk[0:])
 			if err != nil {
@@ -132,8 +137,9 @@ func (pr *reader) Read(p []byte) (n int, err error) {
 		}
 	}
 
-	if len(pr.decoded) > 0 {
-		canCopy := len(pr.decoded)
+	if len(pr.decoded) >= consumerBlockSize {
+		fullBlocks := int(len(pr.decoded) / consumerBlockSize)
+		canCopy := fullBlocks * consumerBlockSize
 		if canCopy > len(p) {
 			canCopy = len(p)
 		}
