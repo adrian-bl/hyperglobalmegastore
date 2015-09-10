@@ -49,7 +49,7 @@ func CryptAes(key []byte, iv []byte, infile string, outfile string, encrypt bool
 		panic(err)
 	}
 
-	pr := newPaddingReader(fhIn, aes.GetBlockSize())
+	pr := newPaddingReader(fhIn, aestool.GetCipherBlockSize())
 
 	if encrypt {
 		err = aes.EncryptStream(fhOut, pr)

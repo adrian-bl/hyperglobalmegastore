@@ -28,24 +28,25 @@ import (
 
 var zlibFeed = 4096              // keep at least 4k of uncompressed data
 var readerBuffSize = 1024 * 1024 // pre-read up to 1MB
-var consumerBlockSize = 16       // Read() always returns a multiple of 16
 
 type reader struct {
-	r            io.Reader /* raw-file reader          */
-	zr           io.Reader /* zlib reader              */
-	uncompressed []byte    /* raw data with scanlines  */
-	decoded      []byte    /* decoded -> scanline-free */
-	slsize       int       /* scanline length          */
-	IV           []byte    /* IV used by this image    */
-	ContentSize  int64     /* Content-Size sent in HTTP header */
-	BlobSize     int64     /* Size of this blob        */
+	r            io.Reader // raw-file reader
+	zr           io.Reader // zlib reader
+	uncompressed []byte    // raw data with scanlines
+	decoded      []byte    // decoded -> scanline-free
+	slsize       int       // scanline length
+	minBytes     int       // Minimal number of bytes the reader should return
+	IV           []byte    // IV used by this image
+	ContentSize  int64     // Content-Size sent in HTTP header
+	BlobSize     int64     // Size of this blob
 }
 
 // Returns a new PNG Reader.
 // Note: You must call InitReader before reading any data
-func NewReader(r io.Reader) (*reader, error) {
+func NewReader(r io.Reader, minBytes int) (*reader, error) {
 	pr := new(reader)
 	pr.r = r
+	pr.minBytes = minBytes
 	return pr, nil
 }
 
@@ -137,9 +138,9 @@ func (pr *reader) Read(p []byte) (n int, err error) {
 		}
 	}
 
-	if len(pr.decoded) >= consumerBlockSize {
-		fullBlocks := int(len(pr.decoded) / consumerBlockSize)
-		canCopy := fullBlocks * consumerBlockSize
+	if len(pr.decoded) >= pr.minBytes {
+		fullBlocks := int(len(pr.decoded) / pr.minBytes)
+		canCopy := fullBlocks * pr.minBytes
 		if canCopy > len(p) {
 			canCopy = len(p)
 		}

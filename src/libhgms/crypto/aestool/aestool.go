@@ -36,7 +36,7 @@ type AesTool struct {
 func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	aesTool := AesTool{}
 
-	aesCipher, err := openssl.GetCipherByName("aes-256-cbc")
+	aesCipher, err := openssl.GetCipherByName(GetCipherName())
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 	sbNil := int64(0)
 	aesTool.encrypter = eCtx
 	aesTool.decrypter = dCtx
-	aesTool.blocksize = aesCipher.BlockSize()
+	aesTool.blocksize = GetCipherBlockSize()
 	aesTool.streamlen = streamlen
 	aesTool.SetSkipBytes(&sbNil)
 
@@ -62,8 +62,12 @@ func New(streamlen int64, key []byte, iv []byte) (*AesTool, error) {
 }
 
 // Returns the block size of the configured cipher
-func (self *AesTool) GetBlockSize() int {
-	return self.blocksize
+func GetCipherBlockSize() int {
+	return 16
+}
+
+func GetCipherName() string {
+	return "aes-256-cbc"
 }
 
 func (self *AesTool) SetSkipBytes(sb *int64) {

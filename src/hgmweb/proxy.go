@@ -279,7 +279,7 @@ func serveFullURI(dst http.ResponseWriter, rq *http.Request, rqm rqMeta) {
 				continue
 			}
 
-			pngReader, err := flickr.NewReader(backendResp.Body)
+			pngReader, err := flickr.NewReader(backendResp.Body, aestool.GetCipherBlockSize())
 			if err != nil {
 				backendResp.Body.Close()
 				continue
