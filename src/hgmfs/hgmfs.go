@@ -39,7 +39,9 @@ type HgmFile struct {
 	offset    int64 // Current offset of 'resp'
 }
 
-var lruBlockSize = uint32(4096)
+var useDirectIO = bool(true)
+var lruEnabled = bool(false)
+var lruBlockSize = uint32(16384)
 var lruMaxItems = uint32(32768) // how many lruBlockSize sized items we are storing
 var lruCache *ssc.Cache
 
@@ -74,7 +76,7 @@ func MountFilesystem(mountpoint string, proxy string) {
 	}
 	defer c.Close()
 
-	if lruCache == nil {
+	if lruEnabled == true {
 		lruCache, err = ssc.New("./ssc.db", lruBlockSize, lruMaxItems)
 		if err != nil {
 			log.Fatal(err)
@@ -167,8 +169,12 @@ func (file *HgmFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse
 	if !req.Flags.IsReadOnly() {
 		return nil, fuse.Errno(syscall.EACCES)
 	}
-	//	resp.Flags |= fuse.OpenDirectIO
-	resp.Flags |= fuse.OpenKeepCache // we are readonly: allow the OS to cache our result
+
+	if useDirectIO == true {
+		resp.Flags |= fuse.OpenDirectIO
+	} else {
+		resp.Flags |= fuse.OpenKeepCache
+	}
 	return file, nil
 }
 
@@ -245,16 +251,22 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		return nil
 	}
 
-	cacheData, cacheOk := lruCache.Get(file.lruKey(off))
-	if cacheOk {
-		resp.Data = cacheData
-		if len(resp.Data) > req.Size {
-			// chop off if we got too much data
-			resp.Data = resp.Data[:req.Size]
+	if lruCache != nil {
+		// Request would bypass the LRU cache -> chop it
+		if req.Size > int(lruBlockSize) {
+			req.Size = int(lruBlockSize)
 		}
 
-		hgmStats.bytesHit += int64(len(resp.Data))
-		return nil
+		cacheData, cacheOk := lruCache.Get(file.lruKey(off))
+		if cacheOk {
+			resp.Data = cacheData
+			if len(resp.Data) > req.Size {
+				// chop off if we got too much data
+				resp.Data = resp.Data[:req.Size]
+			}
+			hgmStats.bytesHit += int64(len(resp.Data))
+			return nil
+		}
 	}
 
 	// Our open HTTP connection is at the wrong offset.
@@ -324,10 +336,10 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 	resp.Data = make([]byte, 0, req.Size)
 	err := file.readBody(int64(req.Size), &resp.Data)
 
-	if err != nil && err != io.EOF {
-		err = fuse.EIO
-	} else {
-		err = nil // clear EOF
+	if err == io.EOF && file.fileSize == uint64(len(resp.Data))+uint64(off) {
+		// We hit the end of the file: There is no need to claim
+		// that there was an error
+		err = nil
 	}
 
 	return err
@@ -353,16 +365,20 @@ func (file *HgmFile) readBody(count int64, copySink *[]byte) (err error) {
 		for nr != len(byteSink) {
 			rb, re := file.bbody.Read(byteSink[nr:])
 			nr += rb
+
 			if re != nil {
-				// may be a partial read with EOF on error
-				err = re
+				if rb == 0 && re == io.EOF && nr > 0 {
+					// hide this EOF error, as we did read in previous loops
+				} else {
+					err = re
+				}
 				break
 			}
 		}
 
 		if copySink != nil {
 			*copySink = append(*copySink, byteSink[:nr]...)
-			if file.offset%int64(lruBlockSize) == 0 && nr > 0 && (err == nil || err == io.EOF) {
+			if lruCache != nil && ((nr > 0 && err == nil) || (nr == 0 && err == io.EOF)) {
 				// Cache whatever we got from a lruBlockSize boundary
 				// this will always be <= lruBlockSize
 				evicted := lruCache.Add(file.lruKey(file.offset), byteSink[:nr])
