@@ -3,6 +3,7 @@ package hgmfs
 import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"golang.org/x/net/context"
@@ -33,6 +34,7 @@ type HgmFile struct {
 	localFile string
 	fileSize  uint64
 	resp      *http.Response // An HTTP connection, may be nil
+	bbody     *bufio.Reader
 	connected bool
 	offset    int64 // Current offset of 'resp'
 }
@@ -302,6 +304,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		file.offset = off
 		file.resp = resp
 		file.connected = true
+		file.bbody = bufio.NewReaderSize(file.resp.Body, 1024*512)
 
 		if resp.StatusCode != 200 && resp.StatusCode != 206 {
 			fmt.Printf("<%08X> FATAL: Wrong status code: %d (file=%s)\n", rqid, resp.StatusCode, file.localFile)
@@ -348,7 +351,7 @@ func (file *HgmFile) readBody(count int64, copySink *[]byte) (err error) {
 
 		nr := 0
 		for nr != len(byteSink) {
-			rb, re := file.resp.Body.Read(byteSink[nr:])
+			rb, re := file.bbody.Read(byteSink[nr:])
 			nr += rb
 			if re != nil {
 				// may be a partial read with EOF on error
@@ -391,6 +394,7 @@ func (file *HgmFile) resetHandle() {
 		file.resp.Body.Close()
 		file.resp = nil
 	}
+	file.bbody = nil
 	file.connected = false
 	file.offset = 0
 }
