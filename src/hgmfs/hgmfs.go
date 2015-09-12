@@ -47,6 +47,8 @@ var lruCache *ssc.Cache
 
 var maxFwdBytes = int64(1024 * 1024 * 2) // never fast-forward more than 2MB
 
+var httpClient = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}}
+
 // Some handy shared statistics
 var hgmStats = struct {
 	lruEvicted int64
@@ -109,7 +111,7 @@ func (fs HgmFs) Root() (fs.Node, error) {
  * Stat()'s the current directory
  */
 func (dir HgmDir) Attr(ctx context.Context, a *fuse.Attr) error {
-	resp, err := http.Get(dir.getStatEndpoint(dir.localDir, false))
+	resp, err := httpClient.Get(dir.getStatEndpoint(dir.localDir, false))
 	if err != nil {
 		return fuse.EIO
 	}
@@ -196,7 +198,7 @@ func (dir *HgmDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir f
  */
 
 func (dir HgmDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	resp, err := http.Get(dir.getStatEndpoint(dir.localDir, true))
+	resp, err := httpClient.Get(dir.getStatEndpoint(dir.localDir, true))
 	if err != nil {
 		return nil, fuse.EIO
 	}
@@ -305,9 +307,7 @@ func (file *HgmFile) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 		}
 
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", off))
-		tr := &http.Transport{ResponseHeaderTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment}
-		hclient := &http.Client{Transport: tr}
-		resp, err := hclient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return fuse.EIO
 		}
