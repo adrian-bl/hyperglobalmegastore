@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"os"
 	"syscall"
+	"time"
 )
 
 const (
@@ -38,9 +39,9 @@ type HgmStatAttr struct {
 	Inode     uint64
 	Size      uint64
 	Blocks    uint64
-	Atime     uint64
-	Mtime     uint64
-	Ctime     uint64
+	Atime     syscall.Timespec
+	Mtime     syscall.Timespec
+	Ctime     syscall.Timespec
 	Mode      uint32
 	Nlink     uint64
 	Uid       uint32
@@ -100,9 +101,9 @@ func LocalStat(path string) (*HgmStatAttr, error) {
 		Inode:     stat.Ino,
 		Size:      uint64(stat.Size),
 		Blocks:    uint64(stat.Blocks),
-		Atime:     0,
-		Mtime:     0,
-		Ctime:     0,
+		Atime:     stat.Atim,
+		Mtime:     stat.Mtim,
+		Ctime:     stat.Ctim,
 		Mode:      modePerm,
 		IsDir:     isDir,
 		Nlink:     stat.Nlink,
@@ -136,9 +137,9 @@ func AttrFromHgmStat(hgm HgmStatAttr, a *fuse.Attr) {
 	a.Inode = hgm.Inode
 	a.Size = uint64(hgm.Size)
 	a.Blocks = uint64(hgm.Blocks)
-	//	a.Atime
-	//	a.Mtime
-	//	a.Ctime
+	a.Atime = time.Unix(hgm.Atime.Sec, hgm.Atime.Nsec)
+	a.Mtime = time.Unix(hgm.Mtime.Sec, hgm.Mtime.Nsec)
+	a.Ctime = time.Unix(hgm.Ctime.Sec, hgm.Ctime.Nsec)
 	a.Mode = os.FileMode(hgm.Mode)
 	a.Nlink = uint32(hgm.Nlink)
 	a.Uid = hgm.Uid
